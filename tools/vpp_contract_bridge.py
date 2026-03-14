@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
 
 from vpp_backend_mock import MockBackend
+from vpp_backend_vpp import VPPBackend
 
 VERSION = 1
 
@@ -25,6 +27,15 @@ def respond_err(message):
     raise SystemExit(1)
 
 
+def make_backend():
+    name = os.environ.get("VMOONGEN_BACKEND", "mock").strip().lower()
+    if name == "mock":
+        return MockBackend()
+    if name == "vpp":
+        return VPPBackend()
+    raise ValueError(f"unknown backend: {name}")
+
+
 def main():
     raw = sys.stdin.read()
     if not raw.strip():
@@ -42,7 +53,10 @@ def main():
     if version != VERSION:
         respond_err(f"unsupported version: {version}")
 
-    backend = MockBackend()
+    try:
+        backend = make_backend()
+    except Exception as exc:
+        respond_err(str(exc))
 
     if not hasattr(backend, action):
         respond_err(f"unknown action: {action}")

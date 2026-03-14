@@ -138,3 +138,15 @@ The adapter is split into two layers:
    - simulates profile lifecycle and stats
 
 This separation allows a future real backend such as `vpp_backend_vpp.py` to be added without changing the Lua API or the contract format.
+## Backend selection
+
+The bridge selects its backend with the `VMOONGEN_BACKEND` environment variable.
+
+Supported values:
+- `mock`
+- `vpp`
+
+Example:
+
+```bash
+VMOONGEN_BACKEND=mock python3 tools/vpp_contract_bridge.py
