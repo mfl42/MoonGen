@@ -29,10 +29,13 @@ def respond_err(message):
 
 def make_backend():
     name = os.environ.get("VMOONGEN_BACKEND", "mock").strip().lower()
+
     if name == "mock":
         return MockBackend()
+
     if name == "vpp":
         return VPPBackend()
+
     raise ValueError(f"unknown backend: {name}")
 
 

@@ -150,3 +150,15 @@ Example:
 
 ```bash
 VMOONGEN_BACKEND=mock python3 tools/vpp_contract_bridge.py
+## Backend selection
+
+The bridge selects its backend with the `VMOONGEN_BACKEND` environment variable.
+
+Supported values:
+- `mock`
+- `vpp`
+
+Example:
+
+```bash
+printf '%s' '{"version":1,"action":"list_profiles","payload":{}}' | VMOONGEN_BACKEND=mock python3 tools/vpp_contract_bridge.py
