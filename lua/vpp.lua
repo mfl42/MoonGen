@@ -1,10 +1,3 @@
----
-
-## 3. Replace the Lua API with a profile-driven one
-
-Replace `lua/vpp.lua` with this:
-
-```lua
 local vpp = {}
 
 local function shell_quote(s)
@@ -13,105 +6,133 @@ local function shell_quote(s)
     return "'" .. s .. "'"
 end
 
-local function run_command(cmd)
+local function json_escape(s)
+    s = tostring(s or "")
+    s = s:gsub("\\", "\\\\")
+    s = s:gsub('"', '\\"')
+    s = s:gsub("\n", "\\n")
+    s = s:gsub("\r", "\\r")
+    s = s:gsub("\t", "\\t")
+    return s
+end
+
+local function is_array(tbl)
+    local max = 0
+    local count = 0
+    for k, _ in pairs(tbl) do
+        if type(k) ~= "number" then
+            return false
+        end
+        if k > max then
+            max = k
+        end
+        count = count + 1
+    end
+    return max == count
+end
+
+local function encode_json(value)
+    local t = type(value)
+
+    if t == "nil" then
+        return "null"
+    elseif t == "boolean" then
+        return value and "true" or "false"
+    elseif t == "number" then
+        return tostring(value)
+    elseif t == "string" then
+        return '"' .. json_escape(value) .. '"'
+    elseif t == "table" then
+        if is_array(value) then
+            local items = {}
+            for i = 1, #value do
+                items[#items + 1] = encode_json(value[i])
+            end
+            return "[" .. table.concat(items, ",") .. "]"
+        else
+            local items = {}
+            for k, v in pairs(value) do
+                items[#items + 1] = '"' .. json_escape(k) .. '":' .. encode_json(v)
+            end
+            return "{" .. table.concat(items, ",") .. "}"
+        end
+    else
+        error("unsupported JSON type: " .. t)
+    end
+end
+
+local function call_bridge(action, payload)
+    local request = {
+        version = 1,
+        action = action,
+        payload = payload or {}
+    }
+
+    local json = encode_json(request)
+    local cmd = "printf %s " .. shell_quote(json) .. " | python3 tools/vpp_contract_bridge.py"
+
     local pipe = io.popen(cmd, "r")
     if not pipe then
-        error("failed to run command: " .. cmd)
+        error("failed to start contract bridge")
     end
 
     local output = pipe:read("*a")
     local ok, _, code = pipe:close()
 
     if not ok then
-        error(string.format("command failed (code=%s): %s\n%s", tostring(code), cmd, output or ""))
+        error(string.format("bridge failed (code=%s): %s", tostring(code), output or ""))
     end
 
-    return output
-end
-
-local function bridge(args)
-    local cmd = "python3 tools/vpp_mock_bridge.py"
-    for _, arg in ipairs(args) do
-        cmd = cmd .. " " .. shell_quote(arg)
-    end
-    local output = run_command(cmd)
     print("[lua/vpp] bridge output: " .. output:gsub("%s+$", ""))
     return output
 end
 
-local function require_field(tbl, key)
-    if tbl[key] == nil then
-        error("missing required field: " .. key)
-    end
-end
-
-local function encode_servers(servers)
-    local parts = {}
-    for _, s in ipairs(servers or {}) do
-        local ip = s.ip or "0.0.0.0"
-        local port = tonumber(s.port or 0)
-        parts[#parts + 1] = string.format("%s:%d", ip, port)
-    end
-    return table.concat(parts, ",")
-end
-
 function vpp.connect(opts)
     opts = opts or {}
-    return bridge({
-        "connect",
-        opts.socket_path or "/run/vpp/api.sock"
+    return call_bridge("connect", {
+        socket_path = opts.socket_path or "/run/vpp/api.sock"
     })
 end
 
 function vpp.disconnect()
-    return bridge({ "disconnect" })
+    return call_bridge("disconnect", {})
 end
 
 function vpp.install_profile(profile)
     assert(profile, "profile required")
-    require_field(profile, "name")
-    require_field(profile, "protocol")
-    require_field(profile, "clients")
-    require_field(profile, "servers")
-    require_field(profile, "cps")
-    require_field(profile, "duration_s")
-
-    return bridge({
-        "install_profile",
-        profile.name,
-        profile.protocol,
-        profile.clients,
-        encode_servers(profile.servers),
-        tostring(profile.cps),
-        tostring(profile.duration_s),
-        profile.payload or "",
-        profile.close_mode or "graceful",
-        tostring(profile.stats_interval_ms or 1000)
-    })
+    return call_bridge("install_profile", profile)
 end
 
 function vpp.start_profile(name)
     assert(name, "profile name required")
-    return bridge({ "start_profile", name })
+    return call_bridge("start_profile", {
+        name = name
+    })
 end
 
 function vpp.stop_profile(name)
     assert(name, "profile name required")
-    return bridge({ "stop_profile", name })
+    return call_bridge("stop_profile", {
+        name = name
+    })
 end
 
 function vpp.remove_profile(name)
     assert(name, "profile name required")
-    return bridge({ "remove_profile", name })
+    return call_bridge("remove_profile", {
+        name = name
+    })
 end
 
 function vpp.get_profile_stats(name)
     assert(name, "profile name required")
-    return bridge({ "get_profile_stats", name })
+    return call_bridge("get_profile_stats", {
+        name = name
+    })
 end
 
 function vpp.list_profiles()
-    return bridge({ "list_profiles" })
+    return call_bridge("list_profiles", {})
 end
 
 return vpp
