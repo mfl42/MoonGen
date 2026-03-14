@@ -106,3 +106,19 @@ The adapter is split into two layers:
    - simulates profile lifecycle and stats
 
 This separation allows a future real backend such as `vpp_backend_vpp.py` to be added without changing the Lua API or the contract format.
+## Implementation layering
+
+The adapter is split into two layers:
+
+1. `vpp_contract_bridge.py`
+   - parses JSON requests
+   - validates protocol version
+   - dispatches actions
+   - formats JSON responses
+
+2. `vpp_backend_mock.py`
+   - implements backend behavior
+   - stores mock state
+   - simulates profile lifecycle and stats
+
+This separation allows a future real backend such as `vpp_backend_vpp.py` to be added without changing the Lua API or the contract format.

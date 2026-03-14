@@ -143,4 +143,3 @@ class MockBackend:
         return {
             "profiles": list(self.state["profiles"].values())
         }
-
