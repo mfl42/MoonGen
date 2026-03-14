@@ -184,3 +184,33 @@ Phase 4
 native Lua binding
 
 ---
+---
+
+## 2. Update the VPP backend doc
+
+Replace `docs/architecture/vpp-backend.md` with:
+
+```md
+# VPP backend design
+
+This document describes the VPP backend for vMoonGen.
+
+## Architecture summary
+
+vMoonGen uses:
+
+- MoonGen as a control plane
+- VPP as a dataplane and session engine
+- a thin adapter for orchestration and observability
+
+```text
+Lua profiles
+   |
+   v
+MoonGen control layer
+   |
+   v
+Adapter
+   |
+   v
+VPP

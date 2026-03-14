@@ -1,48 +1,117 @@
+---
+
+## 3. Replace the Lua API with a profile-driven one
+
+Replace `lua/vpp.lua` with this:
+
+```lua
 local vpp = {}
+
+local function shell_quote(s)
+    s = tostring(s or "")
+    s = s:gsub("'", "'\"'\"'")
+    return "'" .. s .. "'"
+end
+
+local function run_command(cmd)
+    local pipe = io.popen(cmd, "r")
+    if not pipe then
+        error("failed to run command: " .. cmd)
+    end
+
+    local output = pipe:read("*a")
+    local ok, _, code = pipe:close()
+
+    if not ok then
+        error(string.format("command failed (code=%s): %s\n%s", tostring(code), cmd, output or ""))
+    end
+
+    return output
+end
+
+local function bridge(args)
+    local cmd = "python3 tools/vpp_mock_bridge.py"
+    for _, arg in ipairs(args) do
+        cmd = cmd .. " " .. shell_quote(arg)
+    end
+    local output = run_command(cmd)
+    print("[lua/vpp] bridge output: " .. output:gsub("%s+$", ""))
+    return output
+end
+
+local function require_field(tbl, key)
+    if tbl[key] == nil then
+        error("missing required field: " .. key)
+    end
+end
+
+local function encode_servers(servers)
+    local parts = {}
+    for _, s in ipairs(servers or {}) do
+        local ip = s.ip or "0.0.0.0"
+        local port = tonumber(s.port or 0)
+        parts[#parts + 1] = string.format("%s:%d", ip, port)
+    end
+    return table.concat(parts, ",")
+end
 
 function vpp.connect(opts)
     opts = opts or {}
-    print("[lua/vpp] connect socket=" .. (opts.socket_path or "/run/vpp/api.sock"))
-    return true
+    return bridge({
+        "connect",
+        opts.socket_path or "/run/vpp/api.sock"
+    })
 end
 
 function vpp.disconnect()
-    print("[lua/vpp] disconnect")
-    return true
+    return bridge({ "disconnect" })
 end
 
-function vpp.udp_send(opts)
-    assert(opts, "opts required")
-    print(string.format(
-        "[lua/vpp] udp_send %s:%d -> %s:%d payload=%s",
-        opts.src_ip or "0.0.0.0",
-        opts.src_port or 0,
-        opts.dst_ip or "0.0.0.0",
-        opts.dst_port or 0,
-        opts.payload or ""
-    ))
-    return true
+function vpp.install_profile(profile)
+    assert(profile, "profile required")
+    require_field(profile, "name")
+    require_field(profile, "protocol")
+    require_field(profile, "clients")
+    require_field(profile, "servers")
+    require_field(profile, "cps")
+    require_field(profile, "duration_s")
+
+    return bridge({
+        "install_profile",
+        profile.name,
+        profile.protocol,
+        profile.clients,
+        encode_servers(profile.servers),
+        tostring(profile.cps),
+        tostring(profile.duration_s),
+        profile.payload or "",
+        profile.close_mode or "graceful",
+        tostring(profile.stats_interval_ms or 1000)
+    })
 end
 
-function vpp.tcp_connect(opts)
-    assert(opts, "opts required")
-    print(string.format(
-        "[lua/vpp] tcp_connect %s:%d -> %s:%d",
-        opts.src_ip or "0.0.0.0",
-        opts.src_port or 0,
-        opts.dst_ip or "0.0.0.0",
-        opts.dst_port or 0
-    ))
-    return 1
+function vpp.start_profile(name)
+    assert(name, "profile name required")
+    return bridge({ "start_profile", name })
 end
 
-function vpp.tcp_send(session_id, payload)
-    print(string.format("[lua/vpp] tcp_send session=%d payload=%s", session_id or -1, payload or ""))
-    return true
+function vpp.stop_profile(name)
+    assert(name, "profile name required")
+    return bridge({ "stop_profile", name })
 end
 
-function vpp.tcp_close(session_id)
-    print(string.format("[lua/vpp] tcp_close session=%d", session_id or -1))
-    return true
+function vpp.remove_profile(name)
+    assert(name, "profile name required")
+    return bridge({ "remove_profile", name })
 end
 
+function vpp.get_profile_stats(name)
+    assert(name, "profile name required")
+    return bridge({ "get_profile_stats", name })
+end
+
+function vpp.list_profiles()
+    return bridge({ "list_profiles" })
+end
+
+return vpp
