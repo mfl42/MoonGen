@@ -204,7 +204,136 @@ local socket = "/home/user/Projects/vpp/run/cli.sock"
 
 print(vpp.show_version(socket))
 print(vpp.show_interfaces(socket))
+<<<<<<< HEAD
 Supported actions
+=======
+
+Requirements
+	•	Running VPP instance
+	•	Access to the VPP CLI socket
+	•	Python 3
+
+Using MoonGen
+
+You have to write a simple script for your use case.
+The example l3-load-latency.lua￼ is a good starting point as it makes use of a lot of different features of MoonGen.
+
+Simple CLI
+
+The simplest way to get started is using the simple command line interface￼. For example:
+
+sudo ./moongen-simple start load-latency:0:1:rate=10Mp/s,timeLimit=3m
+
+This sends packets with a rate of 10 million packets per second for 3 minutes from port 0 to port 1 and outputs the latency at the end of the run. Available DPDK ports are printed on startup.
+
+load-latency is a flow that is defined in flows/examples.lua.
+Have a look at this file to see how flows are defined. You can add your own flow definitions to any file in the flows subdirectory.
+Run ./moongen-simple list to see all available flows.
+It’s also helpful to run a flow with debug instead of start to print packet contents instead of sending them.
+
+See the documentation for the simple CLI￼ for more details and instructions.
+You can also check the help command or run any subcommand with -h.
+
+This API comes with a small performance overhead compared to the full API.
+
+You can enable multi-threading on a single port by specifying the same port multiple times separated with commas.
+
+Using the full API
+
+Using the full API gives you complete control over MoonGen, this is recommended for more complex test setups.
+This means that you’ll have to write a custom script to use MoonGen in this mode.
+
+MoonGen comes with examples in the examples folder which can be used as a basis for custom scripts.
+Reading the example script l3-load-latency.lua￼ or quality-of-service-test.lua￼ is a good way to learn more about our scripting API as these scripts use most features of MoonGen.
+
+You can run a script like this:
+./build/MoonGen ./examples/l3-load-latency.lua 0 1
+
+The two command line arguments are the transmission and reception ports, see script (or run with -h) for CLI parameter handling.
+MoonGen prints all available ports on startup, so adjust this if necessary.
+
+You can also check out the examples of the libmoon￼ project.
+All libmoon scripts are also valid MoonGen scripts as MoonGen extends libmoon.
+
+MoonEm
+
+MoonEm is a path property emulator, based on MoonGen.
+We performed a comprehensive evaluation of MoonEm in our paper￼ [2].
+
+To apply a delay of 10ms, a rate limit of 1000Mbit/s and a random packet loss of 1% to traffic bidirectionally forwarded between port 0 and 1, use the following command:
+./moonem 0 1 --delay 10 --rate 1000 --loss 1
+
+Frequently Asked Questions
+
+Which NICs do you support?
+
+Basic functionality is available on all NICs supported by DPDK￼.
+Hardware timestamping is currently supported and tested on Intel ice, igb, and i40e NICs. However, support for specific features varies between models.
+Use test-timestamping-capabilities.lua in examples/timestamping-tests to find out what your NIC supports.
+Hardware rate control is supported and tested on Intel ixgbe and i40e NICs. Hardware checksum offloading and timestamping currently do not work on ixgbe NICs with this version of MoonGen.
+
+What’s the difference between MoonGen and libmoon?
+
+MoonGen builds on libmoon￼ by extending it with features for packet generators such as software rate control and software timestamping.
+
+If you want to write a packet generator or test your application: use MoonGen.
+If you want to prototype DPDK applications: use libmoon￼.
+
+References
+
+[1] Paul Emmerich, Sebastian Gallenmüller, Daniel Raumer, Florian Wohlfart, and Georg Carle. MoonGen: A Scriptable High-Speed Packet Generator, 2015. IMC 2015. Available online￼.  BibTeX￼.
+
+[2] Stefan Lachnit, Sebastian Gallenmüller, Eric Hauser, Florian Wiedner, Kilian Holzinger, Henning Stubbe, Thomas Senftl, Georg Carle. MoonEm — High-Precision Path Property Emulation Using DPDK, 2025. Proceedings of the ACM on Networking, Volume 3, Issue CoNEXT4. Available online￼. BibTeX￼.
+
+VPP Integration (Experimental)
+
+This branch introduces an experimental integration between MoonGen and FD.io VPP (Vector Packet Processing).
+
+The integration allows Lua scripts to control a running VPP instance through a lightweight Python bridge.
+
+Architecture
+graph TD
+MoonGen["MoonGen Lua Script"]
+Lua["lua/vpp.lua"]
+Bridge["tools/vpp_contract_bridge.py"]
+Backend["tools/vpp_backend_vpp.py"]
+VPP["VPP CLI socket"]
+
+MoonGen --> Lua
+Lua --> Bridge
+Bridge --> Backend
+Backend --> VPP
+
+Component Roles
+Component Roles
+Component
+Description
+lua/vpp.lua
+Lua module providing VPP control functions
+tools/vpp_contract_bridge.py
+JSON bridge between Lua and Python
+tools/vpp_backend_vpp.py
+Backend executing VPP CLI commands
+cli.sock
+VPP CLI socket used by vppctl
+
+The Lua module sends JSON requests to the Python bridge which then executes the corresponding vppctl commands.
+
+Detailed architecture documentation is available in:
+doc/vpp-integration.md
+
+Example
+local vpp = require("vpp")
+
+local socket = "/home/user/Projects/vpp/run/cli.sock"
+
+print(vpp.show_version(socket))
+print(vpp.show_interfaces(socket))
+
+Supported Actions
+
+The following operations are currently supported:
+>>>>>>> b88f4c6 (Rewrite README with VPP integration documentation)
 	•	show_version
 	•	show_interfaces
 	•	show_plugins
@@ -213,6 +342,31 @@ Supported actions
 	•	run_cli
 
 Requirements
+<<<<<<< HEAD
 	•	Running VPP instance
 	•	Access to the VPP CLI socket
 	•	Python 3
+=======
+
+To use the VPP integration you need:
+	•	Running VPP instance
+	•	Access to the VPP CLI socket
+	•	Python 3
+	•	A working MoonGen build
+
+Example VPP startup:
+vpp -c run/vpp-session.conf
+
+Status
+
+This feature is experimental and intended for research and experimentation.
+
+Future improvements may include:
+	•	native VPP binary API integration
+	•	persistent bridge process
+	•	MoonGen ↔ VPP traffic orchestration
+README_EOF
+
+echo “README.md rewritten successfully.”
+EOF
+>>>>>>> b88f4c6 (Rewrite README with VPP integration documentation)
