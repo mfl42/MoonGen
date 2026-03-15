@@ -168,3 +168,51 @@ If you want to prototype DPDK applications: use [libmoon](https://github.com/tum
 
 [2]  Stefan Lachnit, Sebastian Gallenmüller, Eric Hauser, Florian Wiedner, Kilian Holzinger, Henning Stubbe, Thomas Senftl, Georg Carle. MoonEm — High-Precision Path Property Emulation Using DPDK, 2025. Proceedings of the ACM on Networking, Volume 3, Issue CoNEXT4. [Available online](https://dl.acm.org/doi/10.1145/3768976). [BibTeX](https://net.in.tum.de/publications/bibtex/lachnit2025moonem.bib).
 
+## VPP Integration (Experimental)
+
+This branch introduces an experimental integration between MoonGen and
+the FD.io VPP (Vector Packet Processing) engine.
+
+The integration allows Lua scripts to control a running VPP instance
+through a lightweight bridge.
+
+Architecture:
+
+MoonGen (Lua)
+      │
+      ▼
+lua/vpp.lua
+      │
+      ▼
+tools/vpp_contract_bridge.py
+      │
+      ▼
+tools/vpp_backend_vpp.py
+      │
+      ▼
+VPP CLI socket
+
+The Lua module sends JSON requests to a Python bridge which translates
+them into `vppctl` commands executed on a running VPP instance.
+
+### Example
+
+```lua
+local vpp = require("vpp")
+
+local socket = "/home/user/Projects/vpp/run/cli.sock"
+
+print(vpp.show_version(socket))
+print(vpp.show_interfaces(socket))
+Supported actions
+	•	show_version
+	•	show_interfaces
+	•	show_plugins
+	•	show_sessions
+	•	set_interface_state
+	•	run_cli
+
+Requirements
+	•	Running VPP instance
+	•	Access to the VPP CLI socket
+	•	Python 3
