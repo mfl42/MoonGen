@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$HOME/Projects/vMoonGen"
+SCRIPTS="$ROOT/scripts"
+
+usage() {
+    cat <<USAGE
+Usage:
+  vmoongenctl start-lab
+  vmoongenctl stop-lab
+  vmoongenctl restart-lab
+  vmoongenctl start-daemon
+  vmoongenctl stop-daemon
+  vmoongenctl status-cp
+  vmoongenctl start-fp [script] [ports]
+  vmoongenctl stop-fp
+  vmoongenctl restart-fp [script] [ports]
+  vmoongenctl status-fp
+  vmoongenctl check-lab
+  vmoongenctl check-nics
+  vmoongenctl dpdk-reset
+  vmoongenctl run-device-stats
+USAGE
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  start-lab)         exec "$SCRIPTS/start-lab.sh" "$@" ;;
+  stop-lab)          exec "$SCRIPTS/stop-lab.sh" "$@" ;;
+  restart-lab)       "$SCRIPTS/stop-lab.sh" || true; exec "$SCRIPTS/start-lab.sh" "$@" ;;
+  start-daemon)      exec "$SCRIPTS/start-daemon.sh" "$@" ;;
+  stop-daemon)       exec "$SCRIPTS/stop-daemon.sh" "$@" ;;
+  status-cp)         exec "$SCRIPTS/status-controlplane.sh" "$@" ;;
+  start-fp)          exec "$SCRIPTS/start-fastpath.sh" "$@" ;;
+  stop-fp)           exec "$SCRIPTS/stop-fastpath.sh" "$@" ;;
+  restart-fp)        exec "$SCRIPTS/restart-fastpath.sh" "$@" ;;
+  status-fp)         exec "$SCRIPTS/status-fastpath.sh" "$@" ;;
+  check-lab)         exec "$SCRIPTS/check-lab.sh" "$@" ;;
+  check-nics)        exec "$SCRIPTS/check-nics.sh" "$@" ;;
+  dpdk-reset)        exec "$SCRIPTS/dpdk-reset.sh" "$@" ;;
+  run-device-stats)  exec "$SCRIPTS/run-device-stats.sh" "$@" ;;
+  ""|-h|--help|help) usage ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage
+    exit 1
+    ;;
+esac
