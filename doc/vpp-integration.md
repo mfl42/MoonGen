@@ -23,6 +23,7 @@ control and inspect a running VPP instance.
 
 File:
 lua/vpp.lua
+
 Responsibilities:
 
 - Encode requests to JSON
@@ -32,8 +33,19 @@ Responsibilities:
 ### Python Bridge
 
 File:
-tools/vpp_backend_vpp.py
 
+tools/vpp_contract_bridge.py
+
+Responsibilities:
+
+- Receive JSON requests
+- Dispatch to backend
+- Return JSON response
+
+### VPP Backend
+
+File:
+tools/vpp_backend_vpp.py
 Responsibilities:
 
 - Execute `vppctl`
@@ -52,7 +64,6 @@ Request format:
     "socket_path": "/path/to/cli.sock"
   }
 }
-
 Response format:
 {
   "ok": true,
@@ -61,6 +72,7 @@ Response format:
     "output": "..."
   }
 }
+
 Current Limitations
 	•	CLI-based interaction
 	•	No binary VPP API yet
@@ -76,17 +88,6 @@ Future work may include:
 # 3️⃣ Add a quick start example
 
 Create:
-Example:
-
-```markdown
-# VPP Control Example
-
-Start VPP:
----
-
-# 3️⃣ Add a quick start example
-
-Create:
 docs/examples/vpp-control.md
 Example:
 
@@ -95,3 +96,10 @@ Example:
 
 Start VPP:
 vpp -c run/vpp-session.conf
+Run the Lua test:
+lua examples/vpp_live_test.lua
+Example output:
+vpp v26.06
+interfaces:
+local0 up
+

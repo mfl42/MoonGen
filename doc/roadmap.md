@@ -1,211 +1,232 @@
 # vMoonGen Development Roadmap
 
-This document describes the technical roadmap for the vMoonGen + VPP integration.
-
-The goal is to transform the current experimental bridge into a high-performance orchestration layer between MoonGen and FD.io VPP.
+This roadmap describes the evolution of the **vMoonGen + VPP** integration from an experimental bridge to a repeatable, operable, high-performance lab platform.
 
 ---
 
-# Current State
+## Current Status
 
-The current architecture works as follows:
+The following parts are now validated:
 
-MoonGen (Lua)
-→ lua/vpp.lua
-→ tools/vpp_contract_bridge.py
-→ tools/vpp_backend_vpp.py
-→ VPP CLI (vppctl via CLI socket)
+- **VPP control-plane reachability** through the CLI socket
+- **Persistent bridge daemon** over a UNIX socket
+- **LuaJIT control client** calling the daemon successfully
+- **MoonGen build** and LuaJIT build on the target host
+- **DPDK binding** of the two Intel X710 SFP+ ports with `vfio-pci`
+- **Hugepages** and **IOMMU** configuration sufficient for DPDK startup
+- **MoonGen device discovery** showing 2 usable DPDK devices
 
-Lua calls spawn a Python process which executes a VPP CLI command.
-
-This architecture validates functionality but introduces overhead due to:
-
-- Python interpreter startup
-- repeated module loading
-- shell invocation
-- CLI command execution
-
-This is acceptable for experimentation but not ideal for high-frequency orchestration.
+The remaining dataplane dependency is the **physical SFP+ DAC link** between the two X710 ports.
 
 ---
 
-# Development Goals
+## Architectural Baseline
 
-The vMoonGen project aims to achieve:
+Current architecture:
 
-- efficient orchestration of VPP from Lua
-- low-latency control plane
-- compatibility with MoonGen scripting
-- support for dynamic traffic experiments
-- maintainability and extensibility
+    MoonGen / LuaJIT
+        |
+        +--> fast-path (DPDK dataplane, worker threads)
+        |
+        +--> control-plane (Lua -> UNIX socket -> Python daemon -> VPP)
 
----
+The operating split is:
 
-# Phase 1 — Control Plane Optimization
+- **FP (Fast-Path)**:
+  - MoonGen dataplane
+  - DPDK device ownership
+  - packet generation / receive / latency / throughput
 
-The first optimization step focuses on removing repeated process creation.
-
-## Persistent Bridge Daemon
-
-Replace the current per-call bridge with a persistent daemon.
-
-New architecture:
-
-MoonGen (Lua)
-→ UNIX socket
-→ Python bridge daemon
-→ VPP backend
-→ VPP
-
-Benefits:
-
-- no Python startup per request
-- faster control operations
-- simpler error handling
-- easier debugging
-
-## Bridge Daemon Responsibilities
-
-The daemon should:
-
-- listen on a UNIX domain socket
-- receive JSON requests
-- dispatch actions to the backend
-- return JSON responses
-
-Example socket:
-
-    /tmp/vmoongen.sock
-
-Example request:
-
-    {
-      "version": 1,
-      "action": "show_version",
-      "payload": {
-        "socket_path": "/home/user/Projects/vpp/run/cli.sock"
-      }
-    }
-
-## Lua Client Module
-
-A new Lua module will replace the current io.popen implementation.
-
-Example module:
-
-    lua/vpp_socket.lua
-
-Example usage:
-
-    local vpp = require("vpp_socket")
-
-    local socket = "/home/user/Projects/vpp/run/cli.sock"
-
-    print(vpp.show_version(socket))
+- **CP (Control-Plane)**:
+  - VPP lifecycle
+  - daemon lifecycle
+  - VPP CLI/API actions
+  - orchestration and observability
 
 ---
 
-# Phase 2 — Backend Improvements
+## Phase 1 — Operationalization
 
-Once the persistent daemon exists, the backend can be improved.
+Goal: make the platform easy to start, stop, restart, and debug.
 
-## Persistent CLI Interaction
+### Objectives
 
-Instead of executing vppctl for every request:
+- add operational shell scripts
+- add persistent log files for FP and CP
+- add status checks
+- reduce manual recovery steps after crashes or stale sockets
 
-- reuse a CLI session
-- avoid repeated process creation
+### Deliverables
 
-Benefits:
+- `scripts/start-daemon.sh`
+- `scripts/stop-daemon.sh`
+- `scripts/status-controlplane.sh`
+- `scripts/start-fastpath.sh`
+- `scripts/stop-fastpath.sh`
+- `scripts/restart-fastpath.sh`
+- `scripts/status-fastpath.sh`
+- `scripts/restart-lab.sh`
 
-- lower latency
-- faster command execution
+### Logging design
 
-## Binary API Integration
+Create a dedicated log tree:
 
-The long-term objective is to replace CLI calls with the VPP Binary API.
+    logs/
+      control-plane-actions.log
+      control-plane-daemon.log
+      fast-path-actions.log
+      fast-path-runtime.log
 
-Advantages:
+Purpose:
 
-- structured responses
-- better error handling
-- higher performance
-- full VPP feature access
+- **actions logs**: explicit operator actions (`start`, `stop`, `restart`, `status`)
+- **runtime logs**: stdout/stderr of long-running processes
 
-The CLI interface should remain available for debugging and exploration.
-
----
-
-# Phase 3 — MoonGen Integration Improvements
-
-Once the control plane is optimized, improvements can focus on Lua and MoonGen.
-
-## Separation of Control and Data Plane
-
-MoonGen scripts should clearly separate:
-
-Control Plane:
-- VPP configuration
-- interface control
-- session management
-
-Data Plane:
-- packet generation
-- packet processing
-- traffic measurements
-
-The control plane must not run inside packet generation loops.
-
-## High-Level Lua API
-
-Introduce higher-level orchestration functions.
-
-Examples:
-
-- vpp.start_profile()
-- vpp.stop_profile()
-- vpp.configure_interface()
-- vpp.create_session()
-
-This will simplify MoonGen experiment scripts.
+This phase is now the immediate focus.
 
 ---
 
-# Phase 4 — Experimentation Framework
+## Phase 2 — Reliable Local Lab
 
-Once the integration stabilizes, vMoonGen can evolve into a research framework.
+Goal: make the single-host lab deterministic and repeatable.
 
-Possible features:
+### Objectives
 
-- traffic scenario automation
-- experiment reproducibility
-- benchmark orchestration
-- multi-node experiments
+- validate DAC-connected dataplane
+- validate MoonGen L2/L3 latency tests
+- validate `vpp_multithread_control.lua`
+- document exact bring-up sequence
+- document recovery sequence after failed DPDK primary process
+
+### Deliverables
+
+- DAC-validated test procedure
+- reproducible lab checklist
+- tested startup order:
+  1. VPP
+  2. bridge daemon
+  3. MoonGen fast-path
+
+### Expected result
+
+The host should reliably support:
+
+- MoonGen TX/RX on the two X710 SFP+ ports
+- VPP control actions during active dataplane execution
+- repeatable restart of dataplane without reboot
 
 ---
 
-# Phase 5 — Future Research Directions
+## Phase 3 — Fast Control-Plane Optimization
 
-Potential future work includes:
+Goal: improve control latency and make orchestration more scalable.
 
-- VPP session-scale experiments (millions of flows)
-- automated benchmarking pipelines
-- MoonGen ↔ VPP traffic orchestration
-- real-time traffic feedback loops
-- integration with network emulation environments
+### Objectives
+
+- keep persistent daemon model
+- reduce per-action overhead
+- improve error messages
+- add typed operations beyond raw `run_cli`
+
+### Candidate improvements
+
+- structured JSON responses for typed actions
+- retries for transient socket failures
+- state checks before interface actions
+- optional caching for stable queries (`show_plugins`, version)
+
+### Future direction
+
+Replace CLI-centric backend calls gradually with the **VPP binary API** for typed operations.
 
 ---
 
-# Summary
+## Phase 4 — High-Performance Fast-Path
 
-The roadmap consists of five main phases:
+Goal: stabilize the MoonGen dataplane for high-speed lab use.
 
-1. Control-plane optimization (persistent bridge daemon)
-2. Backend improvements (persistent CLI, binary API)
-3. MoonGen integration improvements
-4. Experimentation framework
-5. Future research extensions
+### Objectives
 
-The immediate priority is Phase 1: Persistent bridge daemon.
+- validate 10 Gb/s loop tests
+- validate multi-threaded worker layout
+- define CPU/core placement
+- document line-rate and latency test recipes
 
-This will significantly improve responsiveness and scalability of the integration.
+### Candidate tests
+
+- `examples/l2-load-latency.lua 0 1`
+- `examples/l3-load-latency.lua 0 1`
+- `examples/vpp_multithread_control.lua 0`
+
+### Design rule
+
+Control-plane calls must remain **outside** the packet hot path.
+
+---
+
+## Phase 5 — Integrated FP/CP Orchestration
+
+Goal: make MoonGen and VPP act as one coherent lab platform.
+
+### Objectives
+
+- FP/CP start and stop workflows
+- standard experiment entrypoints
+- control-plane observability while traffic is running
+- clean shutdown and restart semantics
+
+### Deliverables
+
+- standard “lab start” command
+- standard “lab status” command
+- standard “lab restart” command
+- synchronized log files for FP and CP
+
+---
+
+## Phase 6 — Distributed and Research Extensions
+
+Goal: evolve from single-host lab to multi-node orchestration if needed.
+
+### Possible future work
+
+- node-local agents
+- central coordinator
+- experiment metadata
+- result collection
+- repeatable benchmark suites
+- MoonGen + VPP + multi-node automation
+
+---
+
+## Operations Notes
+
+### Control-Plane startup order
+
+1. VPP process must be running and listening on `cli.sock`
+2. bridge daemon must be started
+3. LuaJIT or MoonGen control clients may connect
+
+### Fast-Path startup order
+
+1. DPDK devices bound to `vfio-pci`
+2. hugepages mounted and available
+3. MoonGen launched as root
+4. physical link up for dataplane traffic
+
+### Common failure modes
+
+- stale `cli.sock` -> VPP not listening
+- stale `/tmp/vmoongen.sock` -> daemon not running
+- stale `/var/run/dpdk/rte/config` -> previous MoonGen primary process still alive
+- devices present but no traffic -> physical link absent or down
+
+---
+
+## Summary
+
+The project now has a validated control-plane and a nearly ready dataplane.
+
+The immediate next milestone is:
+
+**Operate the lab through scripts with logs, then validate the DAC-based fast-path.**
