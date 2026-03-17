@@ -1,100 +1,30 @@
 #!/usr/bin/env python3
 
 import json
+from pathlib import Path
 import sys
 
 
-def ok(data=None):
-    out = {"ok": True}
-    if data is not None:
-        out["data"] = data
-    print(json.dumps(out))
-    sys.exit(0)
-
-
-def fail(message):
-    print(json.dumps({"ok": False, "error": message}))
-    sys.exit(1)
-
-
-def main():
-    if len(sys.argv) < 2:
-        fail("missing command")
-
-    cmd = sys.argv[1]
-
-    if cmd == "connect":
-        socket_path = sys.argv[2] if len(sys.argv) > 2 else "/run/vpp/api.sock"
-        ok({"connected": True, "socket_path": socket_path})
-
-    elif cmd == "disconnect":
-        ok({"disconnected": True})
-
-    elif cmd == "udp_send":
-        if len(sys.argv) < 7:
-            fail("usage: udp_send <src_ip> <dst_ip> <src_port> <dst_port> <payload>")
-        ok({
-            "type": "udp",
-            "src_ip": sys.argv[2],
-            "dst_ip": sys.argv[3],
-            "src_port": int(sys.argv[4]),
-            "dst_port": int(sys.argv[5]),
-            "payload": sys.argv[6],
-        })
-
-    elif cmd == "tcp_connect":
-        if len(sys.argv) < 6:
-            fail("usage: tcp_connect <src_ip> <dst_ip> <src_port> <dst_port>")
-        ok({
-            "type": "tcp",
-            "session_id": 1,
-            "src_ip": sys.argv[2],
-            "dst_ip": sys.argv[3],
-            "src_port": int(sys.argv[4]),
-            "dst_port": int(sys.argv[5]),
-        })
-
-    elif cmd == "tcp_send":
-        if len(sys.argv) < 4:
-            fail("usage: tcp_send <session_id> <payload>")
-        ok({
-            "session_id": int(sys.argv[2]),
-            "payload": sys.argv[3],
-        })
-
-    elif cmd == "tcp_close":
-        if len(sys.argv) < 3:
-            fail("usage: tcp_close <session_id>")
-        ok({
-            "session_id": int(sys.argv[2]),
-            "closed": True,
-        })
-
-    else:
-        fail(f"unknown command: {cmd}")
-
-
-if __name__ == "__main__":
-    main()
-#!/usr/bin/env python3
-
-import json
-import os
-import sys
-
-STATE_FILE = ".vpp_mock_state.json"
+STATE_FILE = Path(".vpp_mock_state.json")
 
 
 def load_state():
-    if not os.path.exists(STATE_FILE):
-        return {"connected": False, "profiles": {}}
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if not STATE_FILE.exists():
+        return {
+            "connected": False,
+            "socket_path": None,
+            "profiles": {},
+            "sessions": {},
+            "next_session_id": 1,
+        }
+    return json.loads(STATE_FILE.read_text(encoding="utf-8"))
 
 
 def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, sort_keys=True)
+    STATE_FILE.write_text(
+        json.dumps(state, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def ok(data=None):
@@ -102,12 +32,12 @@ def ok(data=None):
     if data is not None:
         out["data"] = data
     print(json.dumps(out))
-    sys.exit(0)
+    raise SystemExit(0)
 
 
 def fail(message):
     print(json.dumps({"ok": False, "error": message}))
-    sys.exit(1)
+    raise SystemExit(1)
 
 
 def parse_servers(text):
@@ -124,10 +54,13 @@ def parse_servers(text):
     return servers
 
 
-def main():
-    if len(sys.argv) < 2:
-        fail("missing command")
+def require_args(count, usage):
+    if len(sys.argv) < count:
+        fail(f"usage: {usage}")
 
+
+def main():
+    require_args(2, "vpp_mock_bridge.py <command> [args...]")
     cmd = sys.argv[1]
     state = load_state()
 
@@ -143,9 +76,66 @@ def main():
         save_state(state)
         ok({"disconnected": True})
 
+    elif cmd == "udp_send":
+        require_args(7, "udp_send <src_ip> <dst_ip> <src_port> <dst_port> <payload>")
+        ok(
+            {
+                "type": "udp",
+                "src_ip": sys.argv[2],
+                "dst_ip": sys.argv[3],
+                "src_port": int(sys.argv[4]),
+                "dst_port": int(sys.argv[5]),
+                "payload": sys.argv[6],
+            }
+        )
+
+    elif cmd == "tcp_connect":
+        require_args(6, "tcp_connect <src_ip> <dst_ip> <src_port> <dst_port>")
+        session_id = state["next_session_id"]
+        state["next_session_id"] = session_id + 1
+        state["sessions"][str(session_id)] = {
+            "type": "tcp",
+            "src_ip": sys.argv[2],
+            "dst_ip": sys.argv[3],
+            "src_port": int(sys.argv[4]),
+            "dst_port": int(sys.argv[5]),
+            "open": True,
+        }
+        save_state(state)
+        ok(
+            {
+                "type": "tcp",
+                "session_id": session_id,
+                "src_ip": sys.argv[2],
+                "dst_ip": sys.argv[3],
+                "src_port": int(sys.argv[4]),
+                "dst_port": int(sys.argv[5]),
+            }
+        )
+
+    elif cmd == "tcp_send":
+        require_args(4, "tcp_send <session_id> <payload>")
+        session_id = sys.argv[2]
+        session = state["sessions"].get(session_id)
+        if not session or not session.get("open"):
+            fail(f"unknown or closed session: {session_id}")
+        ok({"session_id": int(session_id), "payload": sys.argv[3]})
+
+    elif cmd == "tcp_close":
+        require_args(3, "tcp_close <session_id>")
+        session_id = sys.argv[2]
+        session = state["sessions"].get(session_id)
+        if not session or not session.get("open"):
+            fail(f"unknown or closed session: {session_id}")
+        session["open"] = False
+        save_state(state)
+        ok({"session_id": int(session_id), "closed": True})
+
     elif cmd == "install_profile":
-        if len(sys.argv) < 10:
-            fail("usage: install_profile <name> <protocol> <clients> <servers> <cps> <duration_s> <payload> <close_mode> <stats_interval_ms>")
+        require_args(
+            10,
+            "install_profile <name> <protocol> <clients> <servers> <cps> <duration_s> <payload> <close_mode> <stats_interval_ms>",
+        )
         name = sys.argv[2]
         state["profiles"][name] = {
             "name": name,
@@ -163,6 +153,7 @@ def main():
         ok(state["profiles"][name])
 
     elif cmd == "start_profile":
+        require_args(3, "start_profile <name>")
         name = sys.argv[2]
         profile = state["profiles"].get(name)
         if not profile:
@@ -172,6 +163,7 @@ def main():
         ok({"name": name, "status": "running"})
 
     elif cmd == "stop_profile":
+        require_args(3, "stop_profile <name>")
         name = sys.argv[2]
         profile = state["profiles"].get(name)
         if not profile:
@@ -181,6 +173,7 @@ def main():
         ok({"name": name, "status": "stopped"})
 
     elif cmd == "remove_profile":
+        require_args(3, "remove_profile <name>")
         name = sys.argv[2]
         if name not in state["profiles"]:
             fail(f"unknown profile: {name}")
@@ -192,29 +185,31 @@ def main():
         ok({"profiles": list(state["profiles"].values())})
 
     elif cmd == "get_profile_stats":
+        require_args(3, "get_profile_stats <name>")
         name = sys.argv[2]
         profile = state["profiles"].get(name)
         if not profile:
             fail(f"unknown profile: {name}")
-
         cps = profile["cps"]
         duration = profile["duration_s"]
-        active = min(cps * 2, 1000000)
-
-        ok({
-            "name": name,
-            "status": profile["status"],
-            "active_sessions": active if profile["status"] == "running" else 0,
-            "sessions_started": cps * min(duration, 10),
-            "sessions_closed": 0 if profile["status"] == "running" else cps * min(duration, 10),
-            "connection_failures": 0,
-            "tx_bytes": active * 128,
-            "rx_bytes": active * 512,
-            "tx_packets": active,
-            "rx_packets": active,
-            "worker_count": 4,
-            "cps_current": cps if profile["status"] == "running" else 0,
-        })
+        running = profile["status"] == "running"
+        active = min(cps * 2, 1_000_000) if running else 0
+        ok(
+            {
+                "name": name,
+                "status": profile["status"],
+                "active_sessions": active,
+                "sessions_started": cps * min(duration, 10),
+                "sessions_closed": 0 if running else cps * min(duration, 10),
+                "connection_failures": 0,
+                "tx_bytes": active * 128,
+                "rx_bytes": active * 512,
+                "tx_packets": active,
+                "rx_packets": active,
+                "worker_count": 4,
+                "cps_current": cps if running else 0,
+            }
+        )
 
     else:
         fail(f"unknown command: {cmd}")

@@ -46,15 +46,34 @@ Check link:
 
 ------------------------------------------------------------------------
 
-# 4 Run MoonGen device check
+# 4 Render a DPDK-enabled VPP config
+
+    scripts/render-vpp-session-conf.sh
+
+------------------------------------------------------------------------
+
+# 5 Start VPP with both X710 ports in DPDK mode
+
+    scripts/start-vpp-host.sh
+
+------------------------------------------------------------------------
+
+# 6 Optional MoonGen-side validation
 
     sudo libmoon/MoonGen examples/device-statistics.lua
 
 ------------------------------------------------------------------------
 
-# 5 Run latency test
+# 7 Cross-port rule
 
-    sudo libmoon/MoonGen examples/l2-load-latency.lua 0 1
+For transport validation:
+
+    client on port0 -> DAC -> server on port1
+    client on port1 -> DAC -> server on port0
+
+Forbidden:
+
+    client and server on the same port
 
 ------------------------------------------------------------------------
 
@@ -65,6 +84,4 @@ Packets should circulate through the DAC loop:
     TX port0 -> DAC -> RX port1
     TX port1 -> DAC -> RX port0
 
-Latency histogram file:
-
-    histogram.csv
+VPP should own both DPDK ports, and the control plane should remain reachable while traffic crosses the DAC.

@@ -1,29 +1,31 @@
 import os
 import subprocess
 
+from vmoongen_env import vpp_lib_dir, vppctl_bin, vppctl_timeout
+
 
 class VPPBackend:
     def __init__(self):
         self.socket_path = None
+        self._vppctl_bin = vppctl_bin()
+        self._vpp_lib_dir = vpp_lib_dir()
 
     def _run_vppctl(self, command):
         if not self.socket_path:
             raise ValueError("missing required field: socket_path")
+        if not self._vppctl_bin.exists():
+            raise FileNotFoundError(f"vppctl not found: {self._vppctl_bin}")
 
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = (
-            os.path.expanduser(
-                "~/Projects/vpp/build-root/install-vpp-native/vpp/lib/x86_64-linux-gnu"
-            )
+            str(self._vpp_lib_dir)
             + ":"
             + env.get("LD_LIBRARY_PATH", "")
         )
 
         result = subprocess.run(
             [
-                os.path.expanduser(
-                    "~/Projects/vpp/build-root/install-vpp-native/vpp/bin/vppctl"
-                ),
+                str(self._vppctl_bin),
                 "-s",
                 self.socket_path,
             ],
@@ -31,13 +33,14 @@ class VPPBackend:
             text=True,
             capture_output=True,
             env=env,
+            timeout=vppctl_timeout(),
         )
 
         output = (result.stdout or "").strip()
         err = (result.stderr or "").strip()
 
-        if result.returncode != 0 and err:
-            raise RuntimeError(err)
+        if result.returncode != 0:
+            raise RuntimeError(err or output or f"vppctl exited with status {result.returncode}")
 
         return output
 
@@ -124,12 +127,17 @@ class VPPBackend:
         if not socket_path:
             raise ValueError("missing required field: socket_path")
 
+        detail = str(payload.get("detail") or "summary").strip().lower()
+        if detail not in {"summary", "verbose"}:
+            raise ValueError("detail must be 'summary' or 'verbose'")
+
         self.socket_path = socket_path
-        output = self._run_vppctl("show session verbose")
+        output = self._run_vppctl("show session verbose" if detail == "verbose" else "show session")
 
         return {
             "backend": "vpp",
             "socket_path": socket_path,
+            "detail": detail,
             "output": output,
         }
     def run_cli(self, payload):

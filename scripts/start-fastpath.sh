@@ -1,44 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-LOG_DIR="$ROOT/logs"
-ACTION_LOG="$LOG_DIR/fast-path-actions.log"
-RUNTIME_LOG="$LOG_DIR/fast-path-runtime.log"
-PID_FILE="$LOG_DIR/fast-path.pid"
-MOONGEN="$ROOT/libmoon/MoonGen"
-SCRIPT="${1:-$ROOT/examples/vpp_multithread_control.lua}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+mkdir -p "$LOGDIR"
+
+SCRIPT_PATH="${1:-$ROOT/examples/vpp_multithread_control.lua}"
 PORT_ARGS="${2:-0}"
-VPPCTL="$HOME/Projects/vpp/build-root/install-vpp-native/vpp/bin/vppctl"
-VPP_LIB="$HOME/Projects/vpp/build-root/install-vpp-native/vpp/lib/x86_64-linux-gnu"
-VPP_SOCKET="$HOME/Projects/vpp/run/cli.sock"
+FP_LOG="$LOGDIR/fast-path-runtime.log"
+FP_PID="$VMOONGEN_FASTPATH_PID"
 
-mkdir -p "$LOG_DIR"
-
-log_action() {
-    echo "[$(date '+%F %T')] [FP] $*" | tee -a "$ACTION_LOG"
+log() {
+  echo "[$(date '+%F %T')] [FP] $*" | tee -a "$LOGDIR/fast-path-actions.log"
 }
 
-log_action "Checking VPP reachability before starting fast-path"
-if ! LD_LIBRARY_PATH="$VPP_LIB" "$VPPCTL" -s "$VPP_SOCKET" show version >/dev/null 2>&1; then
-    log_action "VPP is not reachable; fast-path start aborted"
-    exit 1
+if vmoongen_have_vppctl; then
+log "Checking VPP before MoonGen-side workload start"
+  vmoongen_vppctl show version >/dev/null
 fi
 
-log_action "Cleaning previous DPDK runtime state"
-sudo pkill -f '/home/mfl42/Projects/vMoonGen/libmoon/MoonGen' || true
+vmoongen_require_file "$SCRIPT_PATH" "MoonGen script"
+if ! vmoongen_have_moongen; then
+  echo "[ERROR] MoonGen binary not found at $MOONGEN_BIN" >&2
+  exit 1
+fi
+
+log "Checking MoonGen runtime dependencies"
+if ! "$ROOT/scripts/check-moongen-deps.sh" | tee -a "$LOGDIR/fast-path-actions.log"; then
+  log "MoonGen dependency check failed"
+  exit 1
+fi
+
+log "Checking host prerequisites for the MoonGen-side workload"
+if ! "$ROOT/scripts/check-fastpath-ready.sh" | tee -a "$LOGDIR/fast-path-actions.log"; then
+  log "MoonGen-side workload prerequisite check failed"
+  exit 1
+fi
+
+log "Stopping previous MoonGen process if any"
+if [[ -f "$FP_PID" ]]; then
+  sudo kill "$(cat "$FP_PID")" 2>/dev/null || true
+  rm -f "$FP_PID"
+fi
+sudo pkill -f "$MOONGEN_BIN" || true
 sudo rm -f /var/run/dpdk/rte/config || true
 sudo rm -f /var/run/dpdk/rte/mp_socket || true
 
-log_action "Starting MoonGen fast-path: script=$SCRIPT args=$PORT_ARGS"
-nohup sudo "$MOONGEN" "$SCRIPT" $PORT_ARGS >>"$RUNTIME_LOG" 2>&1 &
-FP_PID=$!
-echo "$FP_PID" > "$PID_FILE"
+if [[ -f "$FP_LOG" ]]; then
+  ARCHIVE_LOG="${FP_LOG}.$(date '+%Y%m%d-%H%M%S').bak"
+  mv "$FP_LOG" "$ARCHIVE_LOG"
+  log "Archived previous MoonGen-side runtime log to $ARCHIVE_LOG"
+fi
+touch "$FP_LOG"
+
+log "Starting MoonGen-side workload with nohup"
+IFS=' ' read -r -a PORT_ARGV <<< "$PORT_ARGS"
+nohup sudo "$MOONGEN_BIN" "$SCRIPT_PATH" "${PORT_ARGV[@]}" >>"$FP_LOG" 2>&1 &
+echo $! > "$FP_PID"
+
 sleep 2
 
-if ps -p "$FP_PID" >/dev/null 2>&1; then
-    log_action "MoonGen fast-path started (pid=$FP_PID)"
-else
-    log_action "MoonGen fast-path exited early; inspect $RUNTIME_LOG"
-    exit 1
+if ! kill -0 "$(cat "$FP_PID")" 2>/dev/null; then
+  log "MoonGen-side workload exited immediately; showing recent log tail"
+  tail -n 40 "$FP_LOG" 2>/dev/null || true
+  exit 1
 fi
+
+log "MoonGen-side workload started"

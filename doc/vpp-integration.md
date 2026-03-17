@@ -1,105 +1,146 @@
-Example content:
+# VPP Integration
 
-```markdown
-# MoonGen – VPP Integration Architecture
+This document describes the current vMoonGen integration path between Lua, the Python daemon, and VPP.
 
-This document describes the experimental MoonGen integration with VPP.
+## Purpose
 
-## Goals
+The project needs a control-plane path that is:
 
-Provide a lightweight control path allowing MoonGen Lua scripts to
-control and inspect a running VPP instance.
+- lightweight
+- scriptable from Lua
+- easy to automate
+- ready to migrate toward the VPP binary API
 
-## Design Principles
+The current solution is a persistent UNIX socket daemon that forwards typed actions to a VPP backend.
 
-- No modification of the VPP core
-- Minimal Lua dependencies
-- JSON contract between Lua and Python
-- Simple CLI-based backend
+## Current Component Layout
 
-## Components
+Lua-side entrypoints:
 
-### Lua Module
+- [lua/vpp.lua](../lua/vpp.lua)
+- [lua/vpp_socket.lua](../lua/vpp_socket.lua)
 
-File:
-lua/vpp.lua
+Daemon:
 
-Responsibilities:
+- [tools/vpp_bridge_daemon.py](../tools/vpp_bridge_daemon.py)
 
-- Encode requests to JSON
-- Call the Python bridge
-- Return raw responses
+Current VPP backend:
 
-### Python Bridge
+- [tools/vpp_backend_vpp.py](../tools/vpp_backend_vpp.py)
 
-File:
+Environment helpers:
 
-tools/vpp_contract_bridge.py
+- [lua/vmoongen-env.lua](../lua/vmoongen-env.lua)
+- [tools/vmoongen_env.py](../tools/vmoongen_env.py)
 
-Responsibilities:
+## Current Request Flow
 
-- Receive JSON requests
-- Dispatch to backend
-- Return JSON response
+```text
+Lua caller
+  -> vpp_socket.lua
+  -> /tmp/vmoongen.sock
+  -> vpp_bridge_daemon.py
+  -> VPPBackend
+  -> vppctl -s <cli.sock>
+  -> JSON response
+```
 
-### VPP Backend
+Current default sockets:
 
-File:
-tools/vpp_backend_vpp.py
-Responsibilities:
+- daemon socket: `/tmp/vmoongen.sock`
+- VPP CLI socket: `<VPP_ROOT>/run/cli.sock`
 
-- Execute `vppctl`
-- Connect to CLI socket
-- Translate responses
+## Current Supported Operations
 
-## Communication Contract
+The current typed operations are:
 
-Request format:
+- `show_version`
+- `show_interfaces`
+- `show_plugins`
+- `show_sessions`
+- `set_interface_state`
+- `run_cli`
+
+`show_sessions` now defaults to the lighter `summary` mode, with `verbose` available explicitly when needed.
+
+## Current Contract
+
+Example request:
 
 ```json
 {
   "version": 1,
   "action": "show_version",
   "payload": {
-    "socket_path": "/path/to/cli.sock"
+    "socket_path": "/home/mfl42/Projects/vpp/run/cli.sock"
   }
 }
-Response format:
+```
+
+Example response:
+
+```json
 {
   "ok": true,
   "version": 1,
   "data": {
-    "output": "..."
+    "backend": "vpp",
+    "socket_path": "/home/mfl42/Projects/vpp/run/cli.sock",
+    "output": "vpp v26.06-rc0 ..."
   }
 }
+```
 
-Current Limitations
-	•	CLI-based interaction
-	•	No binary VPP API yet
-	•	Output parsing not implemented
+## Why the Daemon Matters
 
-Future work may include:
-	•	VPP binary API integration
-	•	session orchestration
-	•	MoonGen packet pipeline coupling
+The daemon gives the project a stable abstraction boundary.
 
----
+That matters because the backend can evolve from:
 
-# 3️⃣ Add a quick start example
+```text
+daemon -> vppctl
+```
 
-Create:
-docs/examples/vpp-control.md
-Example:
+to:
 
-```markdown
-# VPP Control Example
+```text
+daemon -> VPP binary API
+```
 
-Start VPP:
-vpp -c run/vpp-session.conf
-Run the Lua test:
-lua examples/vpp_live_test.lua
-Example output:
-vpp v26.06
-interfaces:
-local0 up
+without changing every Lua caller or every operational script.
 
+## Current Limitations
+
+- backend still uses `vppctl`
+- most results are still text in the `output` field
+- no persistent VPP binary API session yet
+- some orchestration still assumes a local single-host lab
+
+## Next Integration Step
+
+The next step is not to remove the daemon.
+
+It is to keep the daemon and swap the backend progressively:
+
+- typed actions first
+- CLI fallback where needed
+- structured JSON payloads instead of text parsing
+
+## Build Note For The VPP Dataplane
+
+For the dataplane itself, the preferred direction is now to decouple DPDK sourcing from the current fragile VPP external dependency flow.
+
+The intended model is:
+
+```text
+dpdk-stable GitHub clone
+  -> reproducible DPDK build/install
+  -> libdpdk.pc + headers
+  -> VPP rebuild with VPP_USE_SYSTEM_DPDK=ON
+```
+
+This is especially relevant on `venus`, where:
+
+- DPDK object build artifacts already exist
+- but the external install tree is incomplete
+- and the in-tree rebuild path is currently blocked by missing `nasm`

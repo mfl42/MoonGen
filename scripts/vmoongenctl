@@ -1,26 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-SCRIPTS="$ROOT/scripts"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+S="$ROOT/scripts"
 
 usage() {
-    cat <<USAGE
+  cat <<USAGE
 Usage:
+  vmoongenctl render-vpp-conf [target]
+  vmoongenctl start-vpp-host
+  vmoongenctl stop-vpp-host
+  vmoongenctl status-vpp-host
   vmoongenctl start-lab
   vmoongenctl stop-lab
   vmoongenctl restart-lab
-  vmoongenctl start-daemon
-  vmoongenctl stop-daemon
-  vmoongenctl status-cp
   vmoongenctl start-fp [script] [ports]
   vmoongenctl stop-fp
   vmoongenctl restart-fp [script] [ports]
   vmoongenctl status-fp
+  vmoongenctl start-daemon
+  vmoongenctl stop-daemon
+  vmoongenctl status-cp
   vmoongenctl check-lab
+  vmoongenctl check-fp-ready
+  vmoongenctl check-vpp-fastpath
+  vmoongenctl check-vpp-build
+  vmoongenctl check-fp-deps
   vmoongenctl check-nics
   vmoongenctl dpdk-reset
-  vmoongenctl run-device-stats
 USAGE
 }
 
@@ -28,24 +37,27 @@ cmd="${1:-}"
 shift || true
 
 case "$cmd" in
-  start-lab)         exec "$SCRIPTS/start-lab.sh" "$@" ;;
-  stop-lab)          exec "$SCRIPTS/stop-lab.sh" "$@" ;;
-  restart-lab)       "$SCRIPTS/stop-lab.sh" || true; exec "$SCRIPTS/start-lab.sh" "$@" ;;
-  start-daemon)      exec "$SCRIPTS/start-daemon.sh" "$@" ;;
-  stop-daemon)       exec "$SCRIPTS/stop-daemon.sh" "$@" ;;
-  status-cp)         exec "$SCRIPTS/status-controlplane.sh" "$@" ;;
-  start-fp)          exec "$SCRIPTS/start-fastpath.sh" "$@" ;;
-  stop-fp)           exec "$SCRIPTS/stop-fastpath.sh" "$@" ;;
-  restart-fp)        exec "$SCRIPTS/restart-fastpath.sh" "$@" ;;
-  status-fp)         exec "$SCRIPTS/status-fastpath.sh" "$@" ;;
-  check-lab)         exec "$SCRIPTS/check-lab.sh" "$@" ;;
-  check-nics)        exec "$SCRIPTS/check-nics.sh" "$@" ;;
-  dpdk-reset)        exec "$SCRIPTS/dpdk-reset.sh" "$@" ;;
-  run-device-stats)  exec "$SCRIPTS/run-device-stats.sh" "$@" ;;
+  render-vpp-conf) exec "$S/render-vpp-session-conf.sh" "$@" ;;
+  start-vpp-host) exec "$S/start-vpp-host.sh" "$@" ;;
+  stop-vpp-host)  exec "$S/stop-vpp-host.sh" "$@" ;;
+  status-vpp-host) exec "$S/status-vpp-host.sh" "$@" ;;
+  start-lab)    exec "$S/start-lab.sh" "$@" ;;
+  stop-lab)     exec "$S/stop-lab.sh" "$@" ;;
+  restart-lab)  "$S/stop-lab.sh" || true; exec "$S/start-lab.sh" "$@" ;;
+  start-fp)     exec "$S/start-fastpath.sh" "$@" ;;
+  stop-fp)      exec "$S/stop-fastpath.sh" "$@" ;;
+  restart-fp)   exec "$S/restart-fastpath.sh" "$@" ;;
+  status-fp)    exec "$S/status-fastpath.sh" "$@" ;;
+  start-daemon) exec "$S/start-daemon.sh" "$@" ;;
+  stop-daemon)  exec "$S/stop-daemon.sh" "$@" ;;
+  status-cp)    exec "$S/status-controlplane.sh" "$@" ;;
+  check-lab)    exec "$S/check-lab.sh" "$@" ;;
+  check-fp-ready) exec "$S/check-fastpath-ready.sh" "$@" ;;
+  check-vpp-fastpath) exec "$S/check-vpp-fastpath-support.sh" "$@" ;;
+  check-vpp-build) exec "$S/check-vpp-build-prereqs.sh" "$@" ;;
+  check-fp-deps) exec "$S/check-moongen-deps.sh" "$@" ;;
+  check-nics)   exec "$S/check-nics.sh" "$@" ;;
+  dpdk-reset)   exec "$S/dpdk-reset.sh" "$@" ;;
   ""|-h|--help|help) usage ;;
-  *)
-    echo "Unknown command: $cmd" >&2
-    usage
-    exit 1
-    ;;
+  *) echo "Unknown command: $cmd" >&2; usage; exit 1 ;;
 esac

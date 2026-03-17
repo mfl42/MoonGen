@@ -1,29 +1,46 @@
 local ffi = require("ffi")
-local bit = require("bit")
+local env = require("vmoongen-env")
 
-ffi.cdef[[
-typedef unsigned short sa_family_t;
-typedef unsigned int socklen_t;
-typedef long ssize_t;
+local function ensure_unix_socket_cdefs()
+    local ok = pcall(ffi.typeof, "struct sockaddr_un")
+    if not ok then
+        ffi.cdef[[
+        typedef unsigned short sa_family_t;
+        typedef unsigned int socklen_t;
+        typedef long ssize_t;
 
-struct sockaddr_un {
-    sa_family_t sun_family;
-    char sun_path[108];
-};
+        struct sockaddr_un {
+            sa_family_t sun_family;
+            char sun_path[108];
+        };
+        ]]
+    end
 
-int socket(int domain, int type, int protocol);
-int connect(int sockfd, const struct sockaddr_un *addr, socklen_t addrlen);
-ssize_t send(int sockfd, const void *buf, size_t len, int flags);
-ssize_t recv(int sockfd, void *buf, size_t len, int flags);
-int close(int fd);
-char *strerror(int errnum);
-int errno(void);
-]]
+    ffi.cdef[[
+    int socket(int domain, int type, int protocol);
+    int connect(int sockfd, const struct sockaddr_un *addr, socklen_t addrlen);
+    ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+    ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+    int close(int fd);
+    char *strerror(int errnum);
+    int errno(void);
+    ]]
+end
+
+ensure_unix_socket_cdefs()
 
 local AF_UNIX = 1
 local SOCK_STREAM = 1
 
 local vpp = {}
+
+local function resolve_bridge_socket(path)
+    return path or env.bridge_socket()
+end
+
+local function resolve_vpp_socket(path)
+    return path or env.vpp_socket()
+end
 
 local function json_escape(s)
     s = tostring(s or "")
@@ -159,40 +176,41 @@ function vpp.request(bridge_socket, action, payload)
 end
 
 function vpp.show_version(bridge_socket, vpp_socket)
-    return vpp.request(bridge_socket, "show_version", {
-        socket_path = vpp_socket
+    return vpp.request(resolve_bridge_socket(bridge_socket), "show_version", {
+        socket_path = resolve_vpp_socket(vpp_socket)
     })
 end
 
 function vpp.show_interfaces(bridge_socket, vpp_socket)
-    return vpp.request(bridge_socket, "show_interfaces", {
-        socket_path = vpp_socket
+    return vpp.request(resolve_bridge_socket(bridge_socket), "show_interfaces", {
+        socket_path = resolve_vpp_socket(vpp_socket)
     })
 end
 
 function vpp.show_plugins(bridge_socket, vpp_socket)
-    return vpp.request(bridge_socket, "show_plugins", {
-        socket_path = vpp_socket
+    return vpp.request(resolve_bridge_socket(bridge_socket), "show_plugins", {
+        socket_path = resolve_vpp_socket(vpp_socket)
     })
 end
 
-function vpp.show_sessions(bridge_socket, vpp_socket)
-    return vpp.request(bridge_socket, "show_sessions", {
-        socket_path = vpp_socket
+function vpp.show_sessions(bridge_socket, vpp_socket, detail)
+    return vpp.request(resolve_bridge_socket(bridge_socket), "show_sessions", {
+        socket_path = resolve_vpp_socket(vpp_socket),
+        detail = detail or "summary"
     })
 end
 
 function vpp.set_interface_state(bridge_socket, vpp_socket, interface, state)
-    return vpp.request(bridge_socket, "set_interface_state", {
-        socket_path = vpp_socket,
+    return vpp.request(resolve_bridge_socket(bridge_socket), "set_interface_state", {
+        socket_path = resolve_vpp_socket(vpp_socket),
         interface = interface,
         state = state
     })
 end
 
 function vpp.run_cli(bridge_socket, vpp_socket, command)
-    return vpp.request(bridge_socket, "run_cli", {
-        socket_path = vpp_socket,
+    return vpp.request(resolve_bridge_socket(bridge_socket), "run_cli", {
+        socket_path = resolve_vpp_socket(vpp_socket),
         command = command
     })
 end

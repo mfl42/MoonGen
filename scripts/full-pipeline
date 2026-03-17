@@ -1,0 +1,4 @@
+scripts/setup-host.sh
+scripts/dpdk-reset.sh
+scripts/dpdk-bind.sh
+scripts/check-lab.sh

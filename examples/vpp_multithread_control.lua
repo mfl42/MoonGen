@@ -5,9 +5,10 @@ local timer   = require "timer"
 
 package.path = package.path .. ";./lua/?.lua"
 local vpp = require "vpp_socket"
+local env = require "vmoongen-env"
 
-local BRIDGE_SOCKET = "/tmp/vmoongen.sock"
-local VPP_SOCKET    = "/home/mfl42/Projects/vpp/run/cli.sock"
+local BRIDGE_SOCKET = env.bridge_socket()
+local VPP_SOCKET    = env.vpp_socket()
 
 function configure(parser)
     parser:description("Multi-threaded MoonGen load generator with a dedicated high-speed VPP control task")
@@ -17,7 +18,7 @@ function configure(parser)
     parser:option("-r --rate", "Rate in Mbit/s per queue (best effort)."):default(1000):convert(tonumber)
     parser:option("--dst-mac", "Destination MAC address."):default("90:e2:ba:8f:00:01")
     parser:option("--dst-ip", "Destination IPv4 address."):default("198.18.0.1")
-    parser:option("--control-ms", "Control-plane polling interval in milliseconds."):default(1000):convert(tonumber)
+    parser:option("--control-ms", "Control-plane polling interval in milliseconds."):default(5000):convert(tonumber)
 end
 
 function master(args)
@@ -69,7 +70,7 @@ function controlSlave(intervalMs)
 
     while mg.running() do
         if poll:expired() then
-            print(vpp.show_sessions(BRIDGE_SOCKET, VPP_SOCKET))
+            print(vpp.show_sessions(BRIDGE_SOCKET, VPP_SOCKET, "summary"))
             poll:reset()
         end
         mg.sleepMillisIdle(10)

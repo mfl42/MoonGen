@@ -1,364 +1,179 @@
-MoonGen is basically a Lua wrapper around DPDK with utility functions for packet generation. Users write custom scripts for their experiments. It is recommended to make use of hard-coded setup-specific constants in your scripts. The script is the configuration, it is beside the point to write a complicated configuration interface for a script.
-
-The following diagram shows the architecture and how multi-core support is handled.
-
-<p align="center">
-<img alt="Architecture" src="https://raw.githubusercontent.com/emmericp/MoonGen/master/doc/img/moongen-architecture.png" srcset="https://raw.githubusercontent.com/emmericp/MoonGen/master/doc/img/moongen-architecture.png 1x, https://raw.githubusercontent.com/emmericp/MoonGen/master/doc/img/moongen-architecture@2x.png 2x"/>
-</p>
-
-Execution begins in the master task that must be defined in the user's script. This task configures queues and filters on the used NICs and then starts one or more slave tasks.
-
-Note that Lua does not have any native support for multi threading. MoonGen therefore starts a new and completely independent LuaJIT VM for each thread. The new VMs receive serialized arguments: the function to execute and arguments like the queue to send packets from. Threads only share state through the underlying library.
-
-The example script quality-of-service-test.lua shows how this threading model can be used to implement a typical load generation task. It implements a QoS test by sending two different types of packets and measures their throughput and latency. It does so by starting two packet generation tasks: one for the background traffic and one for the prioritized traffic. A third task is used to categorize and count the incoming packets.
-
-# vMoonGen Lab Roadmap
-
-This document describes the evolution of the **vMoonGen experimentation lab**.
-
-The objective is to build a **reproducible, automated dataplane experimentation environment**
-based on:
-
-- MoonGen / DPDK
-- VPP
-- a lightweight control-plane bridge
-- automation scripts
-
----
-
-# Project Goals
-
-The lab aims to provide:
-
-- reproducible dataplane experiments
-- automated lab lifecycle
-- clean CP / FP separation
-- high-performance packet generation
-- simple orchestration for experiments
-
----
-
-# Architecture Model
-
-The system is divided into two main layers.
-
-## Control Plane (CP)
-
-Responsibilities:
-
-- configure VPP
-- inspect dataplane state
-- orchestrate experiments
-- provide automation interfaces
-
-Components:
-
-Lua client  
-↓  
-UNIX socket  
-↓  
-vpp_bridge_daemon  
-↓  
-VPP control interface
-
-Runtime:
-
-systemd --user
-
----
-
-## Fast Path (FP)
-
-Responsibilities:
-
-- packet generation
-- latency measurement
-- throughput testing
-
-Component:
-
-MoonGen
-
-Runtime:
-
-tmux session
-
-MoonGen uses:
-
-DPDK
-
----
-
-# Runtime Model
-
-The lab runtime is organized as follows.
-
-| Component | Runtime |
-|----------|--------|
-| VPP | tmux |
-| MoonGen | tmux |
-| bridge daemon | systemd --user |
-| scripts | shell |
-| logs | files + journalctl |
-
----
-
-# Lab Control Interface
-
-The lab is controlled through:
-
-scripts/vmoongenctl
-
-Examples:
-
-vmoongenctl start-lab  
-vmoongenctl stop-lab  
-vmoongenctl status-cp  
-vmoongenctl status-fp  
-
-This interface orchestrates:
-
-- VPP startup
-- daemon lifecycle
-- fast-path execution
-- diagnostics
-
----
-
-# Phase 1 — Lab Stabilization
-
-Goal:
-
-Create a reproducible environment.
-
-Tasks:
-
-- host preparation scripts
-- NIC binding automation
-- hugepages setup
-- environment validation
-
-Scripts:
-
-setup-host.sh  
-check-lab.sh  
-check-nics.sh  
-dpdk-reset.sh  
-
-Status:
-
-✓ completed
-
----
-
-# Phase 2 — Automation
-
-Goal:
-
-Provide simple control of the lab lifecycle.
-
-Tasks:
-
-- start / stop scripts
-- status checks
-- fast-path management
-
-Scripts:
-
-start-lab.sh  
-stop-lab.sh  
-start-fastpath.sh  
-restart-fastpath.sh  
-
-Status:
-
-✓ completed
-
----
-
-# Phase 3 — Lab Control Interface
-
-Goal:
-
-Provide a unified operator interface.
-
-Component:
-
-scripts/vmoongenctl
-
-Features:
-
-- lab lifecycle commands
-- control-plane status
-- fast-path control
-- diagnostic access
-
-Status:
-
-✓ completed
-
----
-
-# Phase 4 — Documentation
-
-Goal:
-
-make the lab understandable and reproducible.
-
-Documents:
-
-README.md  
-architecture.md  
-roadmap.md  
-roadmap-control-plane.md  
-
-Content:
-
-- architecture explanation
-- DAC test procedure
-- troubleshooting guide
-- automation documentation
-
-Status:
-
-✓ ongoing
-
----
-
-# Phase 5 — Control Plane Optimization
-
-Goal:
-
-remove dependency on CLI parsing.
-
-Current model:
-
-Lua  
-→ daemon  
-→ vppctl  
-→ CLI socket  
-→ text output  
-
-Target model:
-
-Lua  
-→ daemon  
-→ VPP binary API  
-→ structured responses  
-
-Benefits:
-
-- faster control operations
-- structured data
-- no fragile text parsing
-
-Tasks:
-
-- backend abstraction
-- binary API backend
-- persistent VPP session
-- CLI fallback support
-
-Status:
-
-planned
-
----
-
-# Phase 6 — Observability
-
-Goal:
-
-improve visibility of experiments.
-
-Add:
-
-- structured logs
-- latency measurements
-- experiment traces
-
-Possible tools:
-
-- Prometheus
-- Grafana
-- VPP telemetry
-
-Status:
-
-planned
-
----
-
-# Phase 7 — Experiment Framework
-
-Goal:
-
-enable repeatable experiments.
-
-Features:
-
-- scenario definitions
+# vMoonGen Architecture
+
+vMoonGen combines MoonGen, LuaJIT, VPP, and a thin Python daemon into a lab for high-rate transport and dataplane experimentation.
+
+## Design Goals
+
+- keep the transport fast path inside VPP + DPDK
+- keep control logic lightweight and scriptable from Lua
+- make host preparation repeatable
+- preserve enough flexibility to move toward a distributed architecture later
+
+## Current Deployment Model
+
+Current deployment is organized around a host/toolbox split.
+
+### Host Responsibilities
+
+- hugepages
+- VFIO modules
+- binding the Intel X710 ports to `vfio-pci`
+- VPP container lifecycle
+- access to the physical 10G interfaces
+
+### Toolbox Responsibilities
+
+- `scripts/vmoongenctl`
+- `tools/vpp_bridge_daemon.py`
+- MoonGen-side experiment driving
+- Lua control clients
+- logs and diagnostics
+
+## Current Component Graph
+
+```text
++----------------------+
+|       Toolbox        |
+|----------------------|
+| vmoongenctl          |
+| start/stop/status    |
+| vpp_bridge_daemon    |
+| MoonGen front-end    |
+| logs                 |
++----------+-----------+
+           |
+           | /tmp/vmoongen.sock
+           |
++----------v-----------+
+|     Python daemon    |
+|----------------------|
+| request dispatch     |
+| backend selection    |
++----------+-----------+
+           |
+           | vppctl today
+           | vppapi later
+           |
++----------v-----------+
+|         VPP          |
+|----------------------|
+| fast path +          |
+| TCP/UDP stack        |
++----------+-----------+
+           |
+           | DPDK device ownership
+           |
++----------v-----------+
+| Intel X710 port pair |
++----------------------+
+```
+
+## Control-Plane Flow
+
+Current request path:
+
+```text
+Lua
+  -> UNIX socket client
+  -> Python daemon
+  -> VPP backend
+  -> vppctl over cli.sock
+  -> structured JSON response
+```
+
+The Lua side is intentionally thin. It should remain a compact control client, not a second heavyweight control stack.
+
+## Fast-Path Flow
+
+Target fast-path:
+
+```text
+client role on one X710 port
+  -> DAC
+  -> server role on the other X710 port
+  -> VPP session / transport stack
+```
+
+The VPP process owns the DPDK ports in the intended architecture.
+
+MoonGen remains useful as a front-end driver for:
+
+- scenario control
+- orchestration
 - experiment automation
-- result collection
+- optional traffic-side validation scripts
 
-Possible structure:
+The key rule for the DAC lab is:
 
-experiments/
-  latency/
-  throughput/
-  qos/
+```text
+port 0 <-> DAC <-> port 1
+```
 
-Status:
+Not:
 
-planned
+```text
+client and server on the same port
+```
 
----
+Historical repository examples still include MoonGen dataplane scripts, but they are not the architectural source of truth for the target VPP fast path.
 
-# Phase 8 — Performance Benchmarking
+## MoonGen-Side Workload
 
-Goal:
+The current default MoonGen-side workload script is:
 
-benchmark VPP under controlled load.
+```text
+examples/vpp_multithread_control.lua
+```
 
-Experiments:
+It is best treated as:
 
-- latency distribution
-- throughput limits
-- queue behavior
-- packet loss analysis
+- a front-end validation workload
+- a control-plane exercise
+- an integration aid while the VPP fast path evolves
 
-Tools:
+It should not be confused with the intended VPP/DPDK transport fast path itself.
 
-- MoonGen
-- VPP counters
-- NIC hardware statistics
+## Current Runtime Choice on venus
 
-Status:
+The intended target on `venus` is:
 
-planned
+- VPP in a podman container
+- DPDK enabled on both X710 ports
+- DAC traversal between ports
+- control-plane daemon on the toolbox side
 
----
+This repository now includes a helper to render a DPDK-enabled VPP session config for that topology:
 
-# Phase 9 — Advanced Control Plane
+```text
+scripts/render-vpp-session-conf.sh
+```
 
-Future improvements:
+The current config rendered by that helper reserves:
 
-- full VPP binary API integration
-- batch control operations
-- experiment orchestration APIs
-- experiment dashboards
+- `0000:02:00.0`
+- `0000:02:00.1`
 
-Status:
+for VPP.
 
-future work
+## Near-Term Architecture Direction
 
----
+The immediate next architecture step is:
 
-# Long-Term Vision
+- stabilize the VPP/DPDK fast path across the DAC pair
+- keep MoonGen and Lua as front-end experiment drivers
+- improve the daemon/backend path toward the VPP binary API
 
-The vMoonGen lab becomes a platform for:
+## Long-Term Direction
 
-- dataplane experimentation
-- networking research
-- automated benchmarking
-- reproducible packet processing tests
+The longer-term target is a distributed system with:
+
+- host-based routers at the front
+- optional L4 load-balancing functions
+- stateful back ends
+- MoonGen injectors as one class of service module among others
+
+That future work should build on the same principle:
+
+- VPP owns the transport fast path
+- control and orchestration stay lightweight and automatable
+- traffic must traverse a real path between roles

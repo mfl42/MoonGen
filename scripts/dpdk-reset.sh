@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-ROOT="$HOME/Projects/vMoonGen"
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
 
 echo
 echo "======================================="
@@ -10,7 +14,7 @@ echo
 
 echo "[1] Killing MoonGen / DPDK processes"
 
-sudo pkill MoonGen 2>/dev/null || true
+sudo pkill -f "$MOONGEN_BIN" 2>/dev/null || true
 sudo pkill -f dpdk 2>/dev/null || true
 
 sleep 1
@@ -34,7 +38,7 @@ echo "[4] Resetting NIC binding"
 echo
 echo "[5] Current status"
 
-"$ROOT/libmoon/deps/dpdk/usertools/dpdk-devbind.py" --status
+"$DPDK_DEVBIND" --status
 
 echo
 echo "======================================="

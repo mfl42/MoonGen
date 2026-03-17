@@ -1,33 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-LOG_DIR="$ROOT/logs"
-ACTION_LOG="$LOG_DIR/control-plane-actions.log"
-SOCKET="/tmp/vmoongen.sock"
-VPP_SOCKET="$HOME/Projects/vpp/run/cli.sock"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
 
-mkdir -p "$LOG_DIR"
-
-log_action() {
-    echo "[$(date '+%F %T')] [CP] $*" >> "$ACTION_LOG"
-}
-
-log_action "Status check"
-
-echo "=== VPP socket ==="
-ls -l "$VPP_SOCKET" 2>/dev/null || true
+echo "=== Daemon process ==="
+if [[ -f "$VMOONGEN_DAEMON_PID" ]] && kill -0 "$(cat "$VMOONGEN_DAEMON_PID")" 2>/dev/null; then
+  ps -p "$(cat "$VMOONGEN_DAEMON_PID")" -f
+else
+  pgrep -af 'vpp_bridge_daemon.py' || echo "No bridge daemon process"
+fi
 
 echo
-echo "=== Bridge daemon socket ==="
-ls -l "$SOCKET" 2>/dev/null || true
-
-echo
-echo "=== Bridge daemon processes ==="
-ps aux | grep 'tools/vpp_bridge_daemon.py' | grep -v grep || true
+echo "=== Sockets ==="
+ls -l "$BRIDGE_SOCKET" 2>/dev/null || echo "No $BRIDGE_SOCKET"
+ls -l "$VPP_SOCKET" 2>/dev/null || echo "No VPP cli.sock"
 
 echo
 echo "=== VPP reachability ==="
-LD_LIBRARY_PATH="$HOME/Projects/vpp/build-root/install-vpp-native/vpp/lib/x86_64-linux-gnu" \
-"$HOME/Projects/vpp/build-root/install-vpp-native/vpp/bin/vppctl" \
--s "$VPP_SOCKET" show version || true
+if vmoongen_have_vppctl; then
+  vmoongen_vppctl show version || true
+else
+  echo "vppctl not found at $VPP_CTL_BIN"
+fi

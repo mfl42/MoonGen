@@ -14,7 +14,7 @@ The following parts are now validated:
 - **MoonGen build** and LuaJIT build on the target host
 - **DPDK binding** of the two Intel X710 SFP+ ports with `vfio-pci`
 - **Hugepages** and **IOMMU** configuration sufficient for DPDK startup
-- **MoonGen device discovery** showing 2 usable DPDK devices
+- **cross-port DAC topology** identified as the required validation path
 
 The remaining dataplane dependency is the **physical SFP+ DAC link** between the two X710 ports.
 
@@ -26,16 +26,21 @@ Current architecture:
 
     MoonGen / LuaJIT
         |
-        +--> fast-path (DPDK dataplane, worker threads)
+        +--> front-end experiment driver
         |
         +--> control-plane (Lua -> UNIX socket -> Python daemon -> VPP)
+
+    VPP
+        |
+        +--> fast-path (DPDK dataplane, TCP/UDP stack, client/server roles across DAC)
 
 The operating split is:
 
 - **FP (Fast-Path)**:
-  - MoonGen dataplane
+  - VPP dataplane
   - DPDK device ownership
-  - packet generation / receive / latency / throughput
+  - transport stack execution
+  - cross-port client/server validation through the DAC
 
 - **CP (Control-Plane)**:
   - VPP lifecycle
@@ -93,8 +98,9 @@ Goal: make the single-host lab deterministic and repeatable.
 ### Objectives
 
 - validate DAC-connected dataplane
-- validate MoonGen L2/L3 latency tests
-- validate `vpp_multithread_control.lua`
+- validate VPP/DPDK ownership of both X710 ports
+- validate client/server split across the two ports
+- keep MoonGen-side scripts as auxiliary validation, not as the transport fast path
 - document exact bring-up sequence
 - document recovery sequence after failed DPDK primary process
 
@@ -102,18 +108,43 @@ Goal: make the single-host lab deterministic and repeatable.
 
 - DAC-validated test procedure
 - reproducible lab checklist
+- reproducible DPDK source strategy from the `dpdk-stable` GitHub clone
 - tested startup order:
-  1. VPP
-  2. bridge daemon
-  3. MoonGen fast-path
+  1. render VPP DPDK config
+  2. VPP
+  3. bridge daemon
+  4. optional MoonGen-side workload
 
 ### Expected result
 
 The host should reliably support:
 
-- MoonGen TX/RX on the two X710 SFP+ ports
+- VPP ownership of the two X710 SFP+ ports
+- client/server traffic that crosses the DAC
 - VPP control actions during active dataplane execution
-- repeatable restart of dataplane without reboot
+- repeatable restart of the VPP fast path without reboot
+
+### Build strategy note
+
+The current embedded VPP external dependency flow on `venus` is not yet reliable enough for the DAC dataplane because:
+
+- `build-dpdk` succeeds
+- but `install-vpp-native/external/lib/libdpdk.a` is still missing
+- rebuild attempts currently fail earlier in the dependency chain when `ipsec-mb` needs `nasm`
+
+The preferred next step is therefore:
+
+1. keep a dedicated `dpdk-stable` source repository on GitHub
+2. build and install DPDK from that repository in a controlled build environment
+3. expose `libdpdk.pc` through `PKG_CONFIG_PATH`
+4. rebuild VPP with `VPP_USE_SYSTEM_DPDK=ON`
+
+That gives the project:
+
+- a pinned DPDK source of truth
+- easier containerized builds
+- less coupling to the fragile in-tree external install path
+- a cleaner path for future NIC qualification beyond the current X710 pair
 
 ---
 
@@ -143,20 +174,20 @@ Replace CLI-centric backend calls gradually with the **VPP binary API** for type
 
 ## Phase 4 — High-Performance Fast-Path
 
-Goal: stabilize the MoonGen dataplane for high-speed lab use.
+Goal: stabilize the VPP/DPDK dataplane for high-speed lab use.
 
 ### Objectives
 
 - validate 10 Gb/s loop tests
-- validate multi-threaded worker layout
+- validate VPP worker layout
 - define CPU/core placement
-- document line-rate and latency test recipes
+- document line-rate and latency test recipes across the DAC
 
 ### Candidate tests
 
-- `examples/l2-load-latency.lua 0 1`
-- `examples/l3-load-latency.lua 0 1`
-- `examples/vpp_multithread_control.lua 0`
+- VPP client on port 0 and server on port 1
+- VPP client on port 1 and server on port 0
+- MoonGen-side auxiliary validation only where it does not steal the VPP DPDK ports
 
 ### Design rule
 
@@ -211,22 +242,23 @@ Goal: evolve from single-host lab to multi-node orchestration if needed.
 
 1. DPDK devices bound to `vfio-pci`
 2. hugepages mounted and available
-3. MoonGen launched as root
-4. physical link up for dataplane traffic
+3. VPP launched with DPDK enabled on both X710 ports
+4. physical DAC link up
+5. client and server roles split across the two ports
 
 ### Common failure modes
 
 - stale `cli.sock` -> VPP not listening
 - stale `/tmp/vmoongen.sock` -> daemon not running
-- stale `/var/run/dpdk/rte/config` -> previous MoonGen primary process still alive
 - devices present but no traffic -> physical link absent or down
+- no transport validation -> client/server accidentally placed on the same port
 
 ---
 
 ## Summary
 
-The project now has a validated control-plane and a nearly ready dataplane.
+The project now has a validated control-plane and a VPP/DPDK-oriented dataplane model.
 
 The immediate next milestone is:
 
-**Operate the lab through scripts with logs, then validate the DAC-based fast-path.**
+**Operate the lab through scripts with logs, then validate the VPP/DPDK DAC-based fast-path with strict cross-port roles.**
