@@ -573,9 +573,12 @@ function M.validate(scenario)
     arms.traffic_direction,
     (mode == "1-arm") and "client_to_server" or "client_to_server"
   )
+<<<<<<< HEAD
   local pacing = (blocks.logic or {}).pacing or {}
   local client_cps_share = pacing.client_cps_share
   local server_cps_share = pacing.server_cps_share
+=======
+>>>>>>> 4431b3d (feat(scenario): prioritize client/server arm roles and roadmap status)
 
   local role_allowed_2arm = {
     client = true,
@@ -611,6 +614,7 @@ function M.validate(scenario)
     if not direction_allowed_2arm[direction] then
       errs:add("For 2-arm mode, traffic_direction must be client_to_server, server_to_client, or full_duplex.")
     end
+<<<<<<< HEAD
     if client_cps_share ~= nil and (type(client_cps_share) ~= "number" or client_cps_share < 0 or client_cps_share > 1) then
       errs:add("logic.pacing.client_cps_share must be a number in [0,1].")
     end
@@ -623,6 +627,8 @@ function M.validate(scenario)
         errs:add("logic.pacing.client_cps_share + server_cps_share cannot exceed 1.0.")
       end
     end
+=======
+>>>>>>> 4431b3d (feat(scenario): prioritize client/server arm roles and roadmap status)
   else
     if not role_allowed_1arm[left_role] then
       errs:add("For 1-arm mode, topology.arms.left_role is invalid.")
@@ -702,7 +708,10 @@ function M.compile(scenario)
   local instances = topology.instances or {}
   local arms = topology.arms or {}
   local mode = scenario.mode or "2-arm"
+<<<<<<< HEAD
   local pacing = (logic or {}).pacing or {}
+=======
+>>>>>>> 4431b3d (feat(scenario): prioritize client/server arm roles and roadmap status)
 
   local left_role = string_or_default(arms.left_role, "client")
   local right_role = string_or_default(arms.right_role, (mode == "1-arm") and "real-server" or "server")
@@ -713,6 +722,7 @@ function M.compile(scenario)
   local traversal = string_or_default(arms.traversal, "cross-arm")
   local left_port_index = int_or_default(arms.left_port_index, 0)
   local right_port_index = int_or_default(arms.right_port_index, 1)
+<<<<<<< HEAD
 
   local client_cps_share
   local server_cps_share
@@ -747,6 +757,8 @@ function M.compile(scenario)
     client_cps_share = 1.0
     server_cps_share = 0.0
   end
+=======
+>>>>>>> 4431b3d (feat(scenario): prioritize client/server arm roles and roadmap status)
 
   local engine = (traffic.tcp_model or {}).engine or graph.transport_engine or "microflow"
   local fidelity = (traffic.tcp_model or {}).fidelity or "medium"
@@ -794,10 +806,13 @@ function M.compile(scenario)
     arm_model = {
       traversal = traversal,
       traffic_direction = traffic_direction,
+<<<<<<< HEAD
       role_rate_policy = {
         client_cps_share = client_cps_share,
         server_cps_share = server_cps_share,
       },
+=======
+>>>>>>> 4431b3d (feat(scenario): prioritize client/server arm roles and roadmap status)
       arms = {
         left = {
           port_index = left_port_index,
