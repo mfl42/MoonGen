@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vmoongen.local/schemas/worker-plan/worker-plan-v1.schema.json",
+  "title": "Worker Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_type",
+    "scenario_id",
+    "mode",
+    "engine",
+    "totals",
+    "phases",
+    "workers"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
+    "plan_type": {
+      "const": "worker-plan"
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "1-arm",
+        "2-arm"
+      ]
+    },
+    "engine": {
+      "type": "string"
+    },
+    "fidelity": {
+      "type": "string"
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "addressing": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "offset_s",
+          "duration_s"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "start",
+              "ramp",
+              "steady",
+              "finish",
+              "end"
+            ]
+          },
+          "offset_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "target_cps": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "linear"
+                  },
+                  "from": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "to": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workers",
+        "shard_dimension",
+        "total_shards",
+        "cpe_count",
+        "ue_per_cpe",
+        "ue_count",
+        "estimated_microflows",
+        "target_cps"
+      ],
+      "properties": {
+        "workers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "shard_dimension": {
+          "type": "string",
+          "enum": [
+            "cpe",
+            "ue"
+          ]
+        },
+        "total_shards": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cpe_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ue_per_cpe": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ue_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimated_microflows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_cps": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "workers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "worker_id",
+          "queue_id",
+          "shard",
+          "role",
+          "active",
+          "estimated"
+        ],
+        "properties": {
+          "worker_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "queue_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "client",
+              "dual"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "shard": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dimension",
+              "strategy",
+              "start_id",
+              "end_id",
+              "count"
+            ],
+            "properties": {
+              "dimension": {
+                "type": "string",
+                "enum": [
+                  "cpe",
+                  "ue"
+                ]
+              },
+              "strategy": {
+                "type": "string",
+                "enum": [
+                  "contiguous",
+                  "round_robin"
+                ]
+              },
+              "assignment": {
+                "type": "string"
+              },
+              "start_id": {
+                "type": "integer"
+              },
+              "end_id": {
+                "type": "integer"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "estimated": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cps_target",
+              "microflows"
+            ],
+            "properties": {
+              "cps_target": {
+                "type": "number",
+                "minimum": 0
+              },
+              "microflows": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

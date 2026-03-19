@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0.0",
+  "plan_type": "worker-plan",
+  "scenario_id": "livebox_http_nat44",
+  "mode": "2-arm",
+  "engine": "microflow",
+  "fidelity": "medium",
+  "graph": {
+    "template": "tcp_nat44_firewall",
+    "features": {
+      "nat44": true,
+      "firewall": true
+    }
+  },
+  "placement": {
+    "shard_by": "cpe",
+    "affinity": "queue_core_strict"
+  },
+  "addressing": {
+    "wan_pool": "100.64.0.0/12",
+    "server_pool": "10.200.0.0/16"
+  },
+  "observability": {
+    "per_worker": true
+  },
+  "phases": [
+    {
+      "name": "start",
+      "offset_s": 0,
+      "duration_s": 10
+    },
+    {
+      "name": "ramp",
+      "offset_s": 10,
+      "duration_s": 60,
+      "target_cps": 200000
+    },
+    {
+      "name": "steady",
+      "offset_s": 70,
+      "duration_s": 300,
+      "target_cps": 200000
+    },
+    {
+      "name": "finish",
+      "offset_s": 370,
+      "duration_s": 20
+    },
+    {
+      "name": "end",
+      "offset_s": 390,
+      "duration_s": 0
+    }
+  ],
+  "totals": {
+    "workers": 4,
+    "shard_dimension": "cpe",
+    "total_shards": 500,
+    "cpe_count": 500,
+    "ue_per_cpe": 20,
+    "ue_count": 10000,
+    "estimated_microflows": 20000,
+    "target_cps": 200000
+  },
+  "workers": [
+    {
+      "worker_id": 1,
+      "queue_id": 0,
+      "shard": {
+        "dimension": "cpe",
+        "strategy": "contiguous",
+        "start_id": 1,
+        "end_id": 125,
+        "count": 125
+      },
+      "role": "dual",
+      "active": true,
+      "estimated": {
+        "cps_target": 50000,
+        "microflows": 5000
+      }
+    },
+    {
+      "worker_id": 2,
+      "queue_id": 1,
+      "shard": {
+        "dimension": "cpe",
+        "strategy": "contiguous",
+        "start_id": 126,
+        "end_id": 250,
+        "count": 125
+      },
+      "role": "dual",
+      "active": true,
+      "estimated": {
+        "cps_target": 50000,
+        "microflows": 5000
+      }
+    }
+  ]
+}
