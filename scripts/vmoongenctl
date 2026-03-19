@@ -32,11 +32,15 @@ Usage:
   vmoongenctl bootstrap-dpdk-mirror
   vmoongenctl build-vpp-image
   vmoongenctl build-vpp-system-dpdk
+<<<<<<< HEAD
   vmoongenctl plan-core-affinity [--reserve-p-cores 2..4] [--reserve-e-clients N|all] [--system-min-cpus N] [--system-min-e-cores N] [--write-env FILE]
+=======
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
   vmoongenctl scenario-ast <scenario.lua>
   vmoongenctl scenario-plan <scenario.lua>
   vmoongenctl scenario-v1 <scenario.lua>
   vmoongenctl scenario-worker-plan <scenario.lua> [--workers N] [--shard-strategy contiguous|round_robin]
+<<<<<<< HEAD
   vmoongenctl scenario-run <scenario.lua> [--workers N] [--step-s N] [--out-dir DIR] [--allow-1arm]
   vmoongenctl scenario-replay <worker-plan.json> [--step-s N] [--target-cps-override N] [--out-dir DIR] [--allow-1arm]
   vmoongenctl scenario-campaign <scenario.lua> [--workers N] [--iterations N] [--run-window 5m|15m|30m|60m|Ns] [--out-dir DIR] [--allow-1arm]
@@ -45,6 +49,12 @@ Usage:
   vmoongenctl scenario-progress <report_campaign.json> [--out-file FILE] [--emit-json]
   vmoongenctl scenario-smoke [local|remote|both] [--host user@ip] [--workers N]
   vmoongenctl scenario-efficiency <artifact-dir> [--p-cores N] [--e-cores N] [--write-report]
+=======
+  vmoongenctl scenario-run <scenario.lua> [--workers N] [--step-s N] [--out-dir DIR]
+  vmoongenctl scenario-replay <worker-plan.json> [--step-s N] [--target-cps-override N] [--out-dir DIR]
+  vmoongenctl scenario-campaign <scenario.lua> [--workers N] [--iterations N] [--out-dir DIR]
+  vmoongenctl scenario-smoke [local|remote|both] [--host user@ip] [--workers N]
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
   vmoongenctl check-fp-deps
   vmoongenctl check-nics
   vmoongenctl dpdk-reset
@@ -58,6 +68,7 @@ require_luajit() {
   fi
 }
 
+<<<<<<< HEAD
 extract_allow_1arm() {
   PARSED_ARGS=()
   ALLOW_1ARM=0
@@ -99,6 +110,8 @@ enforce_2arm_priority() {
   fi
 }
 
+=======
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
 cmd="${1:-}"
 shift || true
 
@@ -126,7 +139,10 @@ case "$cmd" in
   bootstrap-dpdk-mirror) exec "$S/bootstrap-dpdk-mirror.sh" "$@" ;;
   build-vpp-image) exec "$S/build-vpp-build-image.sh" "$@" ;;
   build-vpp-system-dpdk) exec "$S/build-vpp-system-dpdk.sh" "$@" ;;
+<<<<<<< HEAD
   plan-core-affinity) exec "$S/plan-core-affinity.sh" "$@" ;;
+=======
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
   scenario-ast)
     require_luajit
     exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_dsl_compile.lua" "$@" --ast
@@ -145,6 +161,7 @@ case "$cmd" in
     ;;
   scenario-run)
     require_luajit
+<<<<<<< HEAD
     extract_allow_1arm "$@"
     if [[ "${#PARSED_ARGS[@]}" -lt 1 ]]; then
       echo "[ERROR] Usage: vmoongenctl scenario-run <scenario.lua> [runtime options]" >&2
@@ -178,10 +195,28 @@ case "$cmd" in
     campaign_mode="$(scenario_mode_from_file "$campaign_scenario")"
     enforce_2arm_priority "$campaign_mode" "scenario-campaign ($campaign_scenario)"
     exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_campaign.lua" "${PARSED_ARGS[@]}"
+=======
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" "$@"
+    ;;
+  scenario-replay)
+    require_luajit
+    if [[ $# -lt 1 ]]; then
+      echo "[ERROR] Usage: vmoongenctl scenario-replay <worker-plan.json> [runtime options]" >&2
+      exit 1
+    fi
+    wp="$1"
+    shift
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" --worker-plan-file "$wp" "$@"
+    ;;
+  scenario-campaign)
+    require_luajit
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_campaign.lua" "$@"
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
     ;;
   scenario-smoke)
     exec "$S/scenario-smoke.sh" "$@"
     ;;
+<<<<<<< HEAD
   scenario-campaign-cache)
     exec "$S/scenario-campaign-cache.sh" "$@"
     ;;
@@ -194,6 +229,8 @@ case "$cmd" in
   scenario-efficiency)
     exec "$S/scenario-efficiency.sh" "$@"
     ;;
+=======
+>>>>>>> 2d53180 (feat(scenario): add Lua DSL compiler, runtime campaign, and smoke workflow)
   check-fp-deps) exec "$S/check-moongen-deps.sh" "$@" ;;
   check-nics)   exec "$S/check-nics.sh" "$@" ;;
   dpdk-reset)   exec "$S/dpdk-reset.sh" "$@" ;;
