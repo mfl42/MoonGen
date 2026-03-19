@@ -318,6 +318,7 @@ function M.run(worker_plan, opts)
       retries_total = ws.retries_total,
       shard = w.shard,
       role = w.role,
+      arm = w.arm,
     })
   end
 

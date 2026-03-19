@@ -72,16 +72,36 @@ profile "ue_home_standard" {
 Optional nested blocks:
 
 - `instances`
+- `arms`
 - `addressing`
 - `placement`
 
 ```lua
 topology {
   instances { cpe = 500, ue_per_cpe = dist.uniform(8, 32), servers = 12 },
+  arms {
+    traversal = "cross-arm",
+    traffic_direction = "full_duplex",
+    left_port_index = 0,
+    right_port_index = 1,
+    left_role = "client",
+    right_role = "server"
+  },
   addressing { wan_pool = "100.64.0.0/12", server_pool = "10.200.0.0/16" },
   placement { shard_by = "cpe", affinity = "queue_core_strict" }
 }
 ```
+
+`arms` design notes:
+
+- `traversal` must be `cross-arm`
+- `traffic_direction`:
+  - `client_to_server`
+  - `server_to_client`
+  - `full_duplex` (`2-arm` only)
+- `left_role` and `right_role`:
+  - `2-arm`: `client` / `server` (must differ)
+  - `1-arm`: left must be `client`, right must be `server` or `real-server`
 
 ### graph
 

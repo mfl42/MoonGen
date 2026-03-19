@@ -332,6 +332,7 @@ local function build_env(ctx)
 
   env.topology = new_anon_block("topology")
   env.instances = new_anon_block("instances")
+  env.arms = new_anon_block("arms")
   env.addressing = new_anon_block("addressing")
   env.placement = new_anon_block("placement")
 
@@ -394,10 +395,12 @@ local function decode_topology(block, errs)
   local out = copy_payload(block.payload)
 
   local instances = pop_child(block.payload, "instances", errs, "topology")
+  local arms = pop_child(block.payload, "arms", errs, "topology")
   local addressing = pop_child(block.payload, "addressing", errs, "topology")
   local placement = pop_child(block.payload, "placement", errs, "topology")
 
   out.instances = instances and instances.payload or {}
+  out.arms = arms and arms.payload or {}
   out.addressing = addressing and addressing.payload or {}
   out.placement = placement and placement.payload or {}
 
@@ -543,9 +546,74 @@ function M.validate(scenario)
 
   local topology = blocks.topology or {}
   local instances = topology.instances or {}
+  local arms = topology.arms or {}
   local cpe_count = topology.cpe_count or instances.cpe
   if cpe_count ~= nil and (type(cpe_count) ~= "number" or cpe_count <= 0) then
     errs:add("Topology cpe_count must be a positive number.")
+  end
+
+  local mode = scenario.mode or "2-arm"
+  local left_role = string_or_default(arms.left_role, (mode == "1-arm") and "client" or "client")
+  local right_role = string_or_default(arms.right_role, (mode == "1-arm") and "real-server" or "server")
+  local traversal = string_or_default(arms.traversal, "cross-arm")
+  local direction = string_or_default(
+    arms.traffic_direction,
+    (mode == "1-arm") and "client_to_server" or "client_to_server"
+  )
+
+  local role_allowed_2arm = {
+    client = true,
+    server = true,
+  }
+  local role_allowed_1arm = {
+    client = true,
+    server = true,
+    ["real-server"] = true,
+  }
+  local direction_allowed_2arm = {
+    client_to_server = true,
+    server_to_client = true,
+    full_duplex = true,
+  }
+  local direction_allowed_1arm = {
+    client_to_server = true,
+  }
+
+  if mode == "2-arm" then
+    if not role_allowed_2arm[left_role] then
+      errs:add("For 2-arm mode, topology.arms.left_role must be 'client' or 'server'.")
+    end
+    if not role_allowed_2arm[right_role] then
+      errs:add("For 2-arm mode, topology.arms.right_role must be 'client' or 'server'.")
+    end
+    if left_role == right_role then
+      errs:add("For 2-arm mode, left_role and right_role must differ.")
+    end
+    if traversal ~= "cross-arm" then
+      errs:add("For 2-arm mode, topology.arms.traversal must be 'cross-arm'.")
+    end
+    if not direction_allowed_2arm[direction] then
+      errs:add("For 2-arm mode, traffic_direction must be client_to_server, server_to_client, or full_duplex.")
+    end
+  else
+    if not role_allowed_1arm[left_role] then
+      errs:add("For 1-arm mode, topology.arms.left_role is invalid.")
+    end
+    if left_role ~= "client" then
+      errs:add("For 1-arm mode, topology.arms.left_role must be 'client'.")
+    end
+    if not role_allowed_1arm[right_role] then
+      errs:add("For 1-arm mode, topology.arms.right_role must be 'server' or 'real-server'.")
+    end
+    if right_role ~= "server" and right_role ~= "real-server" then
+      errs:add("For 1-arm mode, topology.arms.right_role must be 'server' or 'real-server'.")
+    end
+    if not direction_allowed_1arm[direction] then
+      errs:add("For 1-arm mode, traffic_direction must be 'client_to_server'.")
+    end
+    if traversal ~= "cross-arm" then
+      errs:add("For 1-arm mode, topology.arms.traversal must be 'cross-arm'.")
+    end
   end
 
   local traffic = blocks.traffic or {}
@@ -604,6 +672,18 @@ function M.compile(scenario)
   local logic = blocks.logic or {}
   local topology = blocks.topology or {}
   local instances = topology.instances or {}
+  local arms = topology.arms or {}
+  local mode = scenario.mode or "2-arm"
+
+  local left_role = string_or_default(arms.left_role, "client")
+  local right_role = string_or_default(arms.right_role, (mode == "1-arm") and "real-server" or "server")
+  local traffic_direction = string_or_default(
+    arms.traffic_direction,
+    (mode == "1-arm") and "client_to_server" or "client_to_server"
+  )
+  local traversal = string_or_default(arms.traversal, "cross-arm")
+  local left_port_index = int_or_default(arms.left_port_index, 0)
+  local right_port_index = int_or_default(arms.right_port_index, 1)
 
   local engine = (traffic.tcp_model or {}).engine or graph.transport_engine or "microflow"
   local fidelity = (traffic.tcp_model or {}).fidelity or "medium"
@@ -632,7 +712,7 @@ function M.compile(scenario)
   local plan = {
     version = "1.0.0",
     scenario_id = scenario.scenario_id,
-    mode = scenario.mode or "2-arm",
+    mode = mode,
     engine = engine,
     fidelity = fidelity,
     graph = {
@@ -648,6 +728,20 @@ function M.compile(scenario)
     },
     placement = topology.placement or {},
     addressing = topology.addressing or {},
+    arm_model = {
+      traversal = traversal,
+      traffic_direction = traffic_direction,
+      arms = {
+        left = {
+          port_index = left_port_index,
+          role = left_role,
+        },
+        right = {
+          port_index = right_port_index,
+          role = right_role,
+        },
+      },
+    },
     applications = traffic.applications or {},
     tcp_model = traffic.tcp_model or {},
     logic = logic,
@@ -714,6 +808,12 @@ function M.to_scenario_v1(scenario, plan)
     public_ip_pool = string_or_default(addressing.wan_pool, "100.64.0.0/12"),
     server_pool = string_or_default(addressing.server_pool, "10.10.0.0/16"),
     shard_by = (placement.shard_by == "ue") and "ue" or "cpe",
+    arms = {
+      traversal = ((plan.arm_model or {}).traversal) or "cross-arm",
+      traffic_direction = ((plan.arm_model or {}).traffic_direction) or "client_to_server",
+      left = copy_table((((plan.arm_model or {}).arms or {}).left) or {}),
+      right = copy_table((((plan.arm_model or {}).arms or {}).right) or {}),
+    },
   }
 
   if type(addressing.vlan_id) == "number" then

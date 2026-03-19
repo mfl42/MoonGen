@@ -120,6 +120,32 @@ local function build_phase_targets(phases)
   return max_cps
 end
 
+local function derive_arm_model(plan)
+  local mode = plan.mode or "2-arm"
+  local arm_model = plan.arm_model or {}
+  local arms = arm_model.arms or {}
+  local left = arms.left or {}
+  local right = arms.right or {}
+
+  local left_role = left.role or "client"
+  local right_role = right.role or ((mode == "1-arm") and "real-server" or "server")
+  local direction = arm_model.traffic_direction or "client_to_server"
+  local traversal = arm_model.traversal or "cross-arm"
+
+  return {
+    traversal = traversal,
+    traffic_direction = direction,
+    left = {
+      role = left_role,
+      port_index = (type(left.port_index) == "number") and left.port_index or 0,
+    },
+    right = {
+      role = right_role,
+      port_index = (type(right.port_index) == "number") and right.port_index or 1,
+    },
+  }
+end
+
 function M.build_worker_plan(plan, opts)
   if type(plan) ~= "table" then
     return nil, { "Plan object is missing." }
@@ -167,6 +193,7 @@ function M.build_worker_plan(plan, opts)
   end
 
   local max_cps = build_phase_targets(plan.phases)
+  local arm_model = derive_arm_model(plan)
   local default_parallel_sessions = clamp_int(opts.parallel_sessions, 2)
   if default_parallel_sessions < 1 then
     default_parallel_sessions = 1
@@ -174,8 +201,20 @@ function M.build_worker_plan(plan, opts)
   local estimated_microflows = ue_count * default_parallel_sessions
 
   local worker_items = {}
+  local left_workers = (plan.mode == "1-arm") and workers or math.floor((workers + 1) / 2)
   for i = 1, workers do
     local r = ranges[i]
+    local role = "client"
+    local arm = "left"
+    if plan.mode == "2-arm" then
+      if i <= left_workers then
+        role = tostring(arm_model.left.role or "client")
+        arm = "left"
+      else
+        role = tostring(arm_model.right.role or "server")
+        arm = "right"
+      end
+    end
     local w = {
       worker_id = i,
       queue_id = i - 1,
@@ -187,12 +226,14 @@ function M.build_worker_plan(plan, opts)
         count = r.count,
       },
       role = (plan.mode == "1-arm") and "client" or "dual",
+      arm = arm,
       active = r.count > 0,
       estimated = {
         cps_target = max_cps > 0 and (max_cps / workers) or 0,
         microflows = estimated_microflows > 0 and math.floor(estimated_microflows / workers) or 0,
       },
     }
+    w.role = role
     if strategy == "round_robin" then
       w.shard.assignment = "round_robin"
     end
@@ -209,6 +250,7 @@ function M.build_worker_plan(plan, opts)
     graph = copy_table(plan.graph or {}),
     placement = copy_table(plan.placement or {}),
     addressing = copy_table(plan.addressing or {}),
+    arm_model = copy_table(arm_model),
     observability = copy_table(plan.observability or {}),
     phases = shallow_array(plan.phases or {}),
     totals = {

@@ -25,6 +25,15 @@ test "client_1arm_real_servers" {
       servers = 64
     },
 
+    arms {
+      traversal = "cross-arm",
+      traffic_direction = "client_to_server",
+      left_port_index = 0,
+      right_port_index = 1,
+      left_role = "client",
+      right_role = "real-server"
+    },
+
     addressing {
       wan_pool = "100.64.0.0/12",
       server_pool = "10.10.0.0/16"

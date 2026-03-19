@@ -20,6 +20,18 @@
     "wan_pool": "100.64.0.0/12",
     "server_pool": "10.200.0.0/16"
   },
+  "arm_model": {
+    "traversal": "cross-arm",
+    "traffic_direction": "client_to_server",
+    "left": {
+      "role": "client",
+      "port_index": 0
+    },
+    "right": {
+      "role": "server",
+      "port_index": 1
+    }
+  },
   "observability": {
     "per_worker": true
   },
@@ -73,7 +85,8 @@
         "end_id": 125,
         "count": 125
       },
-      "role": "dual",
+      "role": "client",
+      "arm": "left",
       "active": true,
       "estimated": {
         "cps_target": 50000,
@@ -90,7 +103,8 @@
         "end_id": 250,
         "count": 125
       },
-      "role": "dual",
+      "role": "server",
+      "arm": "right",
       "active": true,
       "estimated": {
         "cps_target": 50000,

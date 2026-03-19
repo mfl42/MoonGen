@@ -51,6 +51,76 @@
       "type": "object",
       "additionalProperties": true
     },
+    "arm_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "traversal",
+        "traffic_direction",
+        "left",
+        "right"
+      ],
+      "properties": {
+        "traversal": {
+          "type": "string",
+          "enum": [
+            "cross-arm"
+          ]
+        },
+        "traffic_direction": {
+          "type": "string",
+          "enum": [
+            "client_to_server",
+            "server_to_client",
+            "full_duplex"
+          ]
+        },
+        "left": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "port_index"
+          ],
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": [
+                "client",
+                "server",
+                "real-server"
+              ]
+            },
+            "port_index": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "right": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "role",
+            "port_index"
+          ],
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": [
+                "client",
+                "server",
+                "real-server"
+              ]
+            },
+            "port_index": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
     "observability": {
       "type": "object",
       "additionalProperties": true
@@ -196,7 +266,16 @@
             "type": "string",
             "enum": [
               "client",
+              "server",
+              "real-server",
               "dual"
+            ]
+          },
+          "arm": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
             ]
           },
           "active": {

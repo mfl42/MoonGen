@@ -35,6 +35,15 @@ test "livebox_http_nat44" {
       servers = 12
     },
 
+    arms {
+      traversal = "cross-arm",
+      traffic_direction = "full_duplex",
+      left_port_index = 0,
+      right_port_index = 1,
+      left_role = "client",
+      right_role = "server"
+    },
+
     addressing {
       wan_pool = "100.64.0.0/12",
       server_pool = "10.200.0.0/16",
