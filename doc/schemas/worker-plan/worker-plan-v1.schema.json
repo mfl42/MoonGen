@@ -57,6 +57,7 @@
       "required": [
         "traversal",
         "traffic_direction",
+        "role_rate_policy",
         "left",
         "right"
       ],
@@ -74,6 +75,26 @@
             "server_to_client",
             "full_duplex"
           ]
+        },
+        "role_rate_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client_cps_share",
+            "server_cps_share"
+          ],
+          "properties": {
+            "client_cps_share": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "server_cps_share": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         },
         "left": {
           "type": "object",

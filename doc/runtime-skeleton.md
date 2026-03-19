@@ -63,6 +63,12 @@ Additional worker-level export:
 
 - `worker-metrics.json` (runtime-specific helper artifact)
 - includes `role` and `arm` per worker (`left` / `right`)
+- includes directional summaries: `arm_summary` and `role_summary`
+- run/phase summaries include directional cps fields:
+  - `cps_client`
+  - `cps_server`
+  - `cps_left_arm`
+  - `cps_right_arm`
 
 ## Dichotomy Campaign Tool
 

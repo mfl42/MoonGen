@@ -124,6 +124,7 @@ local function derive_arm_model(plan)
   local mode = plan.mode or "2-arm"
   local arm_model = plan.arm_model or {}
   local arms = arm_model.arms or {}
+  local role_rate_policy = arm_model.role_rate_policy or {}
   local left = arms.left or {}
   local right = arms.right or {}
 
@@ -131,10 +132,34 @@ local function derive_arm_model(plan)
   local right_role = right.role or ((mode == "1-arm") and "real-server" or "server")
   local direction = arm_model.traffic_direction or "client_to_server"
   local traversal = arm_model.traversal or "cross-arm"
+  local client_cps_share = role_rate_policy.client_cps_share
+  local server_cps_share = role_rate_policy.server_cps_share
+
+  if type(client_cps_share) ~= "number" or type(server_cps_share) ~= "number" then
+    if mode == "2-arm" then
+      if direction == "full_duplex" then
+        client_cps_share = 0.5
+        server_cps_share = 0.5
+      elseif direction == "server_to_client" then
+        client_cps_share = 0.0
+        server_cps_share = 1.0
+      else
+        client_cps_share = 1.0
+        server_cps_share = 0.0
+      end
+    else
+      client_cps_share = 1.0
+      server_cps_share = 0.0
+    end
+  end
 
   return {
     traversal = traversal,
     traffic_direction = direction,
+    role_rate_policy = {
+      client_cps_share = client_cps_share,
+      server_cps_share = server_cps_share,
+    },
     left = {
       role = left_role,
       port_index = (type(left.port_index) == "number") and left.port_index or 0,

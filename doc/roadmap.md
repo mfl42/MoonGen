@@ -28,6 +28,8 @@ Completed:
 - explicit `1-arm` / `2-arm` scenario modes in DSL
 - explicit arm-role model (`topology.arms`) with cross-arm validation
 - worker role assignment (`client` / `server`) and arm assignment (`left` / `right`)
+- role-aware CPS split policy (`client_cps_share` / `server_cps_share`)
+- directional runtime metrics by role and by arm
 
 In progress:
 
@@ -295,8 +297,8 @@ Goal: make MoonGen and VPP act as one coherent lab platform.
 
 ### P1 / nice to have
 
-- explicit role-aware rate split knobs (`client_cps_share`, `server_cps_share`)
-- directional metrics per arm and per role in runtime exports
+- explicit role-aware rate split knobs (`client_cps_share`, `server_cps_share`) (done)
+- directional metrics per arm and per role in runtime exports (done)
 - scenario wizard fields for role mapping and duplex mode
 - prebuilt scenario templates (`2-arm client->server`, `2-arm full-duplex`, `1-arm superflow`)
 

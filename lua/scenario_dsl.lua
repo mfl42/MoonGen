@@ -194,6 +194,19 @@ local function map_transport(v)
   return "tcp-lite"
 end
 
+local function normalize_share(v, default)
+  if type(v) ~= "number" then
+    return default
+  end
+  if v < 0 then
+    return 0
+  end
+  if v > 1 then
+    return 1
+  end
+  return v
+end
+
 local function pick_profile_by_kind(profiles, wanted_kind)
   local wanted = string.upper(wanted_kind or "")
   for _, name in ipairs(sorted_keys(profiles)) do
@@ -560,6 +573,9 @@ function M.validate(scenario)
     arms.traffic_direction,
     (mode == "1-arm") and "client_to_server" or "client_to_server"
   )
+  local pacing = (blocks.logic or {}).pacing or {}
+  local client_cps_share = pacing.client_cps_share
+  local server_cps_share = pacing.server_cps_share
 
   local role_allowed_2arm = {
     client = true,
@@ -594,6 +610,18 @@ function M.validate(scenario)
     end
     if not direction_allowed_2arm[direction] then
       errs:add("For 2-arm mode, traffic_direction must be client_to_server, server_to_client, or full_duplex.")
+    end
+    if client_cps_share ~= nil and (type(client_cps_share) ~= "number" or client_cps_share < 0 or client_cps_share > 1) then
+      errs:add("logic.pacing.client_cps_share must be a number in [0,1].")
+    end
+    if server_cps_share ~= nil and (type(server_cps_share) ~= "number" or server_cps_share < 0 or server_cps_share > 1) then
+      errs:add("logic.pacing.server_cps_share must be a number in [0,1].")
+    end
+    if type(client_cps_share) == "number" and type(server_cps_share) == "number" then
+      local sum = client_cps_share + server_cps_share
+      if sum > 1.000001 then
+        errs:add("logic.pacing.client_cps_share + server_cps_share cannot exceed 1.0.")
+      end
     end
   else
     if not role_allowed_1arm[left_role] then
@@ -674,6 +702,7 @@ function M.compile(scenario)
   local instances = topology.instances or {}
   local arms = topology.arms or {}
   local mode = scenario.mode or "2-arm"
+  local pacing = (logic or {}).pacing or {}
 
   local left_role = string_or_default(arms.left_role, "client")
   local right_role = string_or_default(arms.right_role, (mode == "1-arm") and "real-server" or "server")
@@ -684,6 +713,40 @@ function M.compile(scenario)
   local traversal = string_or_default(arms.traversal, "cross-arm")
   local left_port_index = int_or_default(arms.left_port_index, 0)
   local right_port_index = int_or_default(arms.right_port_index, 1)
+
+  local client_cps_share
+  local server_cps_share
+  if mode == "2-arm" then
+    if traffic_direction == "full_duplex" then
+      client_cps_share = 0.5
+      server_cps_share = 0.5
+    elseif traffic_direction == "server_to_client" then
+      client_cps_share = 0.0
+      server_cps_share = 1.0
+    else
+      client_cps_share = 1.0
+      server_cps_share = 0.0
+    end
+
+    if type(pacing.client_cps_share) == "number" and type(pacing.server_cps_share) == "number" then
+      client_cps_share = normalize_share(pacing.client_cps_share, client_cps_share)
+      server_cps_share = normalize_share(pacing.server_cps_share, server_cps_share)
+      local sum = client_cps_share + server_cps_share
+      if sum > 0 then
+        client_cps_share = client_cps_share / sum
+        server_cps_share = server_cps_share / sum
+      end
+    elseif type(pacing.client_cps_share) == "number" then
+      client_cps_share = normalize_share(pacing.client_cps_share, client_cps_share)
+      server_cps_share = 1.0 - client_cps_share
+    elseif type(pacing.server_cps_share) == "number" then
+      server_cps_share = normalize_share(pacing.server_cps_share, server_cps_share)
+      client_cps_share = 1.0 - server_cps_share
+    end
+  else
+    client_cps_share = 1.0
+    server_cps_share = 0.0
+  end
 
   local engine = (traffic.tcp_model or {}).engine or graph.transport_engine or "microflow"
   local fidelity = (traffic.tcp_model or {}).fidelity or "medium"
@@ -731,6 +794,10 @@ function M.compile(scenario)
     arm_model = {
       traversal = traversal,
       traffic_direction = traffic_direction,
+      role_rate_policy = {
+        client_cps_share = client_cps_share,
+        server_cps_share = server_cps_share,
+      },
       arms = {
         left = {
           port_index = left_port_index,

@@ -23,6 +23,10 @@
   "arm_model": {
     "traversal": "cross-arm",
     "traffic_direction": "client_to_server",
+    "role_rate_policy": {
+      "client_cps_share": 1.0,
+      "server_cps_share": 0.0
+    },
     "left": {
       "role": "client",
       "port_index": 0

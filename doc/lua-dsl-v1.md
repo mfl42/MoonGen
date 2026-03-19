@@ -141,10 +141,22 @@ traffic {
 ```lua
 logic {
   populations { cpe_count = 500, ue_count = 8000, public_ips = 64 },
-  pacing { connection_rate = "adaptive", burstiness = 0.2 },
+  pacing {
+    connection_rate = "adaptive",
+    burstiness = 0.2,
+    client_cps_share = 0.5,
+    server_cps_share = 0.5
+  },
   tcp_behavior { slow_start = true, cwnd_growth = "reno-lite" }
 }
 ```
+
+`pacing.client_cps_share` / `server_cps_share`:
+
+- optional role-aware rate split for `2-arm`
+- range `[0,1]`
+- if one side is omitted, the other is inferred
+- for `1-arm`, runtime defaults stay `client=1.0`, `server=0.0`
 
 ### phases
 

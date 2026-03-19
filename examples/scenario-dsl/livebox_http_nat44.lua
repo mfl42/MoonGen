@@ -97,7 +97,9 @@ test "livebox_http_nat44" {
 
     pacing {
       connection_rate = "adaptive",
-      burstiness = 0.2
+      burstiness = 0.2,
+      client_cps_share = 0.5,
+      server_cps_share = 0.5
     },
 
     tcp_behavior {
