@@ -47,7 +47,7 @@ fail() {
 }
 
 vppctl() {
-  echo "$1" | LD_LIBRARY_PATH="$VPP_LIB_DIR" "$VPP_VPPCTL_NATIVE" -s "$VPP_SOCKET"
+  echo "$1" | LD_LIBRARY_PATH="$VPP_LIB_DIR" "$VPP_VPPCTL_NATIVE" -s "$VPP_SOCKET" || true
 }
 
 [[ -x "$VPP_BIN_NATIVE" ]]    || fail "VPP binary not found: $VPP_BIN_NATIVE"
