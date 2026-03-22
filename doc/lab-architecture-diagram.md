@@ -1,10 +1,8 @@
 # Lab Architecture Diagram
 
-_Last updated: 2026-03-16_
+_Last updated: 2026-03-17_
 
-This document provides a GitHub-rendered overview of the vMoonGen lab using **Mermaid** diagrams.
-
----
+This document provides a GitHub-rendered overview of the current vMoonGen lab using Mermaid diagrams.
 
 ## 1. Full Lab Architecture
 
@@ -12,58 +10,54 @@ This document provides a GitHub-rendered overview of the vMoonGen lab using **Me
 flowchart TD
     U["User / Operator"] --> CTL["scripts/vmoongenctl"]
 
-    subgraph CP["Control Plane (CP)"]
-        CTL --> SCRIPTS["FP/CP shell scripts"]
+    subgraph TOOLBOX["Toolbox"]
+        CTL --> SCRIPTS["shell orchestration"]
         LUA["Lua control client"] --> SOCK["UNIX socket"]
         SOCK --> DAEMON["vpp_bridge_daemon.py"]
-        DAEMON --> VPPAPI["VPP control interface<br/>CLI today / Binary API later"]
+        MG["MoonGen front-end<br/>injector / driver"]
+        LOGS["logs/"]
     end
 
-    subgraph DP["Dataplane / Fast Path (FP)"]
-        MG["MoonGen / LuaJIT"] --> DPDK["DPDK"]
-        DPDK --> NIC0["Intel X710 Port 0"]
-        NIC1["Intel X710 Port 1"] --> DPDK
+    subgraph HOST["Host / Fast Path"]
+        VPP["VPP + DPDK<br/>fast path + TCP/UDP stack"]
+        NIC0["Intel X710 Port 0"]
+        NIC1["Intel X710 Port 1"]
     end
 
-    VPPAPI --> VPP["VPP"]
-    NIC0 --> DAC["SFP+ DAC loopback"]
-    DAC --> NIC1
-
+    DAEMON --> VPP
     VPP --> NIC0
     NIC1 --> VPP
-
-    LOGS["logs/ + journalctl"] -. observability .-> DAEMON
-    LOGS -. observability .-> MG
+    NIC0 --> DAC["SFP+ DAC"]
+    DAC --> NIC1
+    MG -. scenario driving .-> DAEMON
+    LOGS -. observability .-> DAEMON
     LOGS -. observability .-> VPP
+```
 
-2. Runtime Model
+## 2. Runtime Model
 
+```mermaid
 flowchart LR
-    subgraph TMUX["tmux"]
-        VPP["VPP process"]
-        MG["MoonGen fast-path"]
+    subgraph HOST["Host"]
+        VPP["VPP container"]
+        PREP["hugepages + vfio-pci"]
     end
 
-    subgraph SYSTEMD["systemd --user"]
-        DAEMON["vpp_bridge_daemon.py"]
+    subgraph TOOLBOX["Toolbox"]
+        DAEMON["CP daemon"]
+        MG["MoonGen-side workload"]
+        CTL["vmoongenctl"]
     end
 
-    subgraph SHELL["Shell scripts"]
-        VMGCTL["vmoongenctl"]
-        START["start-lab.sh"]
-        STOP["stop-lab.sh"]
-        CHECK["check-lab.sh"]
-    end
+    PREP --> VPP
+    CTL --> DAEMON
+    CTL --> MG
+    CTL --> VPP
+```
 
-    VMGCTL --> START
-    VMGCTL --> STOP
-    VMGCTL --> CHECK
-    START --> VPP
-    START --> DAEMON
-    START --> MG
+## 3. Control Plane Request Flow
 
-3. Control Plane Request Flow
-
+```mermaid
 sequenceDiagram
     participant Lua as Lua client
     participant Sock as UNIX socket
@@ -79,9 +73,11 @@ sequenceDiagram
     Backend-->>Daemon: structured response
     Daemon-->>Sock: JSON response
     Sock-->>Lua: response
+```
 
-4. Current vs Target Control Plane
+## 4. Current vs Target Control Plane
 
+```mermaid
 flowchart TB
     subgraph CURRENT["Current model"]
         A1["Lua"] --> A2["UNIX socket"]
@@ -96,91 +92,61 @@ flowchart TB
         B3 --> B4["Persistent VPP Binary API session"]
         B4 --> B5["Structured response"]
     end
+```
 
-5. Fast Path Dataplane Flow
+## 5. DAC Cross-Port Rule
 
+```mermaid
 flowchart LR
-    TX["MoonGen TX worker"] --> Q0["DPDK TX queue"]
-    Q0 --> P0["X710 Port 0"]
-    P0 --> DAC["SFP+ DAC cable"]
+    C0["Client role on port 0"] --> P0["X710 Port 0"]
+    P0 --> DAC["SFP+ DAC"]
     DAC --> P1["X710 Port 1"]
-    P1 --> Q1["DPDK RX queue"]
-    Q1 --> RX["MoonGen RX worker"]
+    P1 --> S1["Server role on port 1"]
+```
 
-6. Typical Start Sequence
+The reverse direction is equally valid:
 
+```mermaid
+flowchart LR
+    C1["Client role on port 1"] --> P1["X710 Port 1"]
+    P1 --> DAC["SFP+ DAC"]
+    DAC --> P0["X710 Port 0"]
+    P0 --> S0["Server role on port 0"]
+```
+
+Forbidden validation model:
+
+```text
+client and server on the same physical port
+```
+
+## 6. Typical Start Sequence
+
+```mermaid
 sequenceDiagram
     participant User
-    participant Scripts as scripts/start-lab.sh
-    participant VPP
-    participant Daemon
-    participant MoonGen
+    participant Prep as scripts/setup-host.sh
+    participant Render as scripts/render-vpp-session-conf.sh
+    participant VPP as scripts/start-vpp-host.sh
+    participant Daemon as scripts/vmoongenctl start-lab
+    participant MG as scripts/vmoongenctl start-fp
 
-    User->>Scripts: start-lab.sh
-    Scripts->>Scripts: setup-host.sh
-    Scripts->>Scripts: dpdk-reset.sh
-    Scripts->>VPP: start
-    Scripts->>Daemon: start
-    Scripts->>Scripts: check-lab.sh
-    User->>MoonGen: start-fastpath.sh
+    User->>Prep: prepare host
+    User->>Render: render VPP DPDK config
+    User->>VPP: start VPP container
+    User->>Daemon: start control plane
+    User->>MG: optional MoonGen-side workload
+```
 
-7. Typical Stop Sequence
+## 7. Component Responsibilities
 
-sequenceDiagram
-    participant User
-    participant Scripts as scripts/stop-lab.sh
-    participant MoonGen
-    participant Daemon
-    participant VPP
-
-    User->>Scripts: stop-lab.sh
-    Scripts->>MoonGen: stop
-    Scripts->>Daemon: stop
-    Scripts->>VPP: stop
-    Scripts->>Scripts: cleanup DPDK runtime
-
-sequenceDiagram
-    participant User
-    participant Scripts as scripts/stop-lab.sh
-    participant MoonGen
-    participant Daemon
-    participant VPP
-
-    User->>Scripts: stop-lab.sh
-    Scripts->>MoonGen: stop
-    Scripts->>Daemon: stop
-    Scripts->>VPP: stop
-    Scripts->>Scripts: cleanup DPDK runtime
-
-8. Component Responsibilities
-
-Component
-Responsibility
-MoonGen
-high-speed packet generation and measurement
-DPDK
-direct NIC access and queue management
-Intel X710
-physical dataplane interfaces
-SFP+ DAC
-local loop for dataplane validation
-VPP
-packet processing dataplane
-vpp_bridge_daemon.py
-control-plane bridge
-vmoongenctl
-unified lab control interface
-shell scripts
-lifecycle automation
-tmux
-interactive runtime for VPP and MoonGen
-systemd –user
-supervised daemon lifecycle
-logs + journalctl
-observability
-
-9. Notes
-•FP (Fast Path) = MoonGen + DPDK + NIC dataplane
-•CP (Control Plane) = Lua control + daemon + VPP management
-•Current control-plane backend is CLI-oriented
-•Next optimization step is a persistent VPP binary API backend
+| Component | Responsibility |
+| --- | --- |
+| VPP + DPDK | transport fast path and packet processing |
+| Intel X710 pair | physical dataplane interfaces |
+| SFP+ DAC | required cross-port validation path |
+| MoonGen / LuaJIT | front-end experiment driving and auxiliary validation |
+| `vpp_bridge_daemon.py` | control-plane bridge |
+| `vmoongenctl` | unified lab control interface |
+| shell scripts | lifecycle automation |
+| logs | observability |

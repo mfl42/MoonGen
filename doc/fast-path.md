@@ -1,75 +1,110 @@
 # Fast Path
 
-The **fast-path (FP)** is responsible for high-speed packet generation
-and measurement.
+The intended fast path is VPP + DPDK using the X710 port pair as a real cross-port dataplane.
 
-The lab uses:
+## Current Role
 
-    MoonGen + DPDK
+Today the fast path is responsible for:
 
-MoonGen provides:
+- owning the DPDK ports
+- running the VPP transport and session stack
+- carrying client/server traffic across the DAC
+- keeping client and server roles split across physical ports
 
--   packet generation
--   latency measurement
--   throughput benchmarking
+## Current Prerequisites
 
-------------------------------------------------------------------------
+Before the VPP fast path can start, the host must provide:
 
-# Architecture
+- hugepages
+- X710 ports bound to `vfio-pci`
+- DPDK-ready host state
+- a VPP session config that enables DPDK on both ports
 
-    MoonGen script
-          |
-          v
-    DPDK driver
-          |
-          v
-    NIC hardware
+The repository now checks those prerequisites explicitly through:
 
-Each MoonGen thread runs its own **LuaJIT VM**.
+- [scripts/check-fastpath-ready.sh](../scripts/check-fastpath-ready.sh)
+- [scripts/check-vpp-fastpath-support.sh](../scripts/check-vpp-fastpath-support.sh)
+- [scripts/render-vpp-session-conf.sh](../scripts/render-vpp-session-conf.sh)
 
-This allows:
+## Current Startup Path
 
--   multi-core packet generation
--   independent packet streams
+Typical flow:
 
-------------------------------------------------------------------------
+```text
+scripts/setup-host.sh
+  -> scripts/render-vpp-session-conf.sh
+  -> scripts/start-vpp-host.sh
+  -> scripts/vmoongenctl start-lab
+```
 
-# Fast Path Tasks
+The current repository still contains a MoonGen-side workload entrypoint:
 
-Typical tasks:
+- [examples/vpp_multithread_control.lua](../examples/vpp_multithread_control.lua)
 
--   generate traffic flows
--   measure latency distribution
--   measure throughput
--   stress dataplane components
+That script is useful for:
 
-Example scripts:
+- front-end validation
+- control-plane exercise
+- integration bring-up
 
-    examples/l2-load-latency.lua
-    examples/l3-load-latency.lua
-    examples/rate-control-methods.lua
+It should not be treated as the target transport fast path itself.
 
-------------------------------------------------------------------------
+## Current `venus` Blocker
 
-# Runtime
+On `venus` today, the installed VPP build does not include `dpdk_plugin.so`.
 
-MoonGen typically runs in a **tmux session**.
+What it does expose:
 
-Example:
+- `ige_driver.so`
+- `iavf_driver.so`
+- `idpf_plugin.so`
 
-    tmux new -s moongen
-    sudo libmoon/MoonGen examples/l2-load-latency.lua 0 1
+Why that matters:
 
-------------------------------------------------------------------------
+- the DAC pair is an Intel X710 PF pair (`8086:1572`)
+- `ige` only covers I211 / I225 / I226 class devices
+- `iavf` covers Intel VFs, not the X710 PF
+- `idpf` targets newer Intel devices
 
-# Metrics
+So the current X710 DAC dataplane is blocked in VPP until the host installs a VPP build with classic DPDK / `net_i40e` support.
 
-Measurements include:
+## DAC Cross-Port Rule
 
--   latency histogram
--   packet loss
--   throughput
+The DAC topology must be used as a true crossing path:
 
-Output files:
+```text
+client on port 0 -> DAC -> server on port 1
+client on port 1 -> DAC -> server on port 0
+```
 
-    histogram.csv
+Forbidden topology for transport validation:
+
+```text
+client and server on the same physical port
+```
+
+## Runtime Notes
+
+The VPP fast path is driven by the host-side VPP lifecycle:
+
+- [scripts/render-vpp-session-conf.sh](../scripts/render-vpp-session-conf.sh)
+- [scripts/start-vpp-host.sh](../scripts/start-vpp-host.sh)
+- [scripts/status-vpp-host.sh](../scripts/status-vpp-host.sh)
+- [scripts/stop-vpp-host.sh](../scripts/stop-vpp-host.sh)
+
+The repository also keeps MoonGen-side helpers:
+
+- [scripts/start-fastpath.sh](../scripts/start-fastpath.sh)
+- [scripts/status-fastpath.sh](../scripts/status-fastpath.sh)
+- [scripts/stop-fastpath.sh](../scripts/stop-fastpath.sh)
+- [scripts/restart-fastpath.sh](../scripts/restart-fastpath.sh)
+
+Runtime logs are stored under `logs/`.
+
+Each new MoonGen-side workload launch archives the previous runtime log to a `.bak` file before starting a fresh run.
+
+## Design Rule
+
+The control plane may observe or steer the experiment, but it must not sit in the packet hot path.
+
+That rule is central to the scalability target of the project.

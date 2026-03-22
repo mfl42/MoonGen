@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-LOG_DIR="$ROOT/logs"
-ACTION_LOG="$LOG_DIR/control-plane-actions.log"
-SOCKET="/tmp/vmoongen.sock"
-PID_FILE="$LOG_DIR/control-plane-daemon.pid"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+ACTION_LOG="$LOGDIR/control-plane-actions.log"
 
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOGDIR"
 
 log_action() {
     echo "[$(date '+%F %T')] [CP] $*" | tee -a "$ACTION_LOG"
 }
 
 log_action "Stopping bridge daemon"
-pkill -f 'tools/vpp_bridge_daemon.py' || true
-rm -f "$SOCKET" || true
-rm -f "$PID_FILE" || true
+if [[ -f "$VMOONGEN_DAEMON_PID" ]]; then
+    kill "$(cat "$VMOONGEN_DAEMON_PID")" 2>/dev/null || true
+fi
+pkill -f 'vpp_bridge_daemon.py' || true
+rm -f "$BRIDGE_SOCKET" || true
+rm -f "$VMOONGEN_DAEMON_PID" || true
 log_action "Bridge daemon stopped"

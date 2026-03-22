@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
-"$DIR/stop-fastpath.sh" || true
-"$DIR/stop-daemon.sh" || true
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+
+"$ROOT/scripts/stop-lab.sh" || true
 sleep 1
-"$DIR/start-daemon.sh"
-sleep 1
-"$DIR/start-fastpath.sh"
+"$ROOT/scripts/start-lab.sh"

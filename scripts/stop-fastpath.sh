@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-LOG_DIR="$ROOT/logs"
-ACTION_LOG="$LOG_DIR/fast-path-actions.log"
-PID_FILE="$LOG_DIR/fast-path.pid"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+mkdir -p "$LOGDIR"
 
-mkdir -p "$LOG_DIR"
-
-log_action() {
-    echo "[$(date '+%F %T')] [FP] $*" | tee -a "$ACTION_LOG"
+log() {
+  echo "[$(date '+%F %T')] [FP] $*" | tee -a "$LOGDIR/fast-path-actions.log"
 }
 
-log_action "Stopping MoonGen fast-path"
-sudo pkill -f '/home/mfl42/Projects/vMoonGen/libmoon/MoonGen' || true
+log "Stopping MoonGen-side workload"
+if [[ -f "$VMOONGEN_FASTPATH_PID" ]]; then
+  sudo kill "$(cat "$VMOONGEN_FASTPATH_PID")" 2>/dev/null || true
+  rm -f "$VMOONGEN_FASTPATH_PID"
+fi
+sudo pkill -f "$MOONGEN_BIN" || true
 sudo rm -f /var/run/dpdk/rte/config || true
 sudo rm -f /var/run/dpdk/rte/mp_socket || true
-rm -f "$PID_FILE" || true
-log_action "MoonGen fast-path stopped"
+log "Fast-path stopped"

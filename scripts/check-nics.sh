@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
-DPDK_BIND="$ROOT/libmoon/deps/dpdk/usertools/dpdk-devbind.py"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
 
 echo
 echo "========================================"
@@ -20,7 +21,7 @@ ip -br link
 echo
 
 echo "---- DPDK binding status ----"
-sudo $DPDK_BIND --status
+sudo "$DPDK_DEVBIND" --status
 echo
 
 echo "---- VFIO modules ----"
@@ -37,13 +38,13 @@ echo
 
 echo "---- Link status (Intel X710) ----"
 
-for iface in enp2s0f0np0 enp2s0f1np1
+for iface in $VMOONGEN_IFACES
 do
     if ip link show "$iface" &> /dev/null
     then
         echo
         echo "Interface: $iface"
-        sudo ethtool $iface | grep -E "Link detected|Speed"
+        sudo ethtool "$iface" | grep -E "Link detected|Speed"
     fi
 done
 

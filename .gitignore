@@ -6,3 +6,11 @@ doc/html/
 *.log
 *.csv
 *.mscap
+*.pyc
+*.pid
+__pycache__/
+logs/
+scripts/*.bak.*
+# Local archive area for backups and recovered artifacts.
+# Exception: never synchronize old/ into the Git repository.
+old/

@@ -1,372 +1,333 @@
-### TL;DR
-LuaJIT + DPDK = fast and flexible packet generator for 100 Gbit/s Ethernet and beyond.
-MoonGen uses hardware features for accurate and precise latency measurements and rate control.
+# vMoonGen
 
-Skip to [Installation](#installation) and [Usage](#using-moongen) if you just want to send some packets.
-The emulation of network paths is explained in [MoonEm](#moonem).
+vMoonGen is a MoonGen/VPP integration project for high-performance transport and dataplane experimentation.
 
-* Detailed evaluation: [Paper](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015.pdf) (IMC 2015, [BibTeX entry](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015-BibTeX.txt))
-* Detailed evaluation of path emulation capabilities: [Paper](https://dl.acm.org/doi/10.1145/3768976) (CoNEXT 2025, [BibTeX entry](https://net.in.tum.de/publications/bibtex/lachnit2025moonem.bib))
+The current design combines:
 
-# MoonGen Packet Generator
+- MoonGen + LuaJIT as the front-end experiment driver
+- VPP + DPDK as the fast-path transport and packet-processing stack
+- a lightweight Python daemon for control-plane orchestration
+- shell tooling for host preparation, lifecycle, and observability
 
-MoonGen is a scriptable high-speed packet generator built on [libmoon](https://github.com/tumi8/libmoon).
-The whole load generator is controlled by a Lua script: all packets that are sent are crafted by a user-provided script.
-Thanks to the incredibly fast LuaJIT VM and the packet processing library DPDK, it can saturate a 10 Gbit/s Ethernet link with 64 Byte packets while using only a single CPU core.
-MoonGen can achieve this rate even if each packet is modified by a Lua script. It does not rely on tricks like replaying the same buffer.
+The long-term goal is to evolve from a single-host lab into a scalable architecture that can drive large TCP/UDP workloads now, and SCTP later, across distributed front ends and stateful back ends.
 
-MoonGen can also receive packets, e.g., to check which packets are dropped by a
-system under test. As the reception is also fully under control of the user's
-Lua script, it can be used to implement advanced test scripts. E.g. one can use
-two instances of MoonGen that establish a connection with each other. This
-setup can be used to benchmark middle-boxes like firewalls.
+## What This Repository Is
 
-MoonGen focuses on four main points:
+This repository is no longer just the original MoonGen codebase.
 
-* High performance and multi-core scaling: > 20 million packets per second per CPU core
-* Flexibility: Each packet is crafted in real time by a user-provided Lua script
-* Precise and accurate timestamping: Timestamping with sub-microsecond precision on commodity hardware
-* Precise and accurate rate control: Reliable generation of arbitrary traffic patterns on commodity hardware
+It is now the working tree for:
 
-You can have a look at [our slides from a talk](https://raw.githubusercontent.com/tumi8/MoonGen/v22.11/doc/Slides.pdf) or read [our paper](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015.pdf) [1] for a more detailed discussion of MoonGen's internals.
+- the vMoonGen control-plane integration
+- the host/toolbox operating model used on `venus` / `MS-01`
+- the DPDK and VFIO preparation flow for the two Intel X710 10G ports
+- the MoonGen-side injector and validation scripts around a VPP/DPDK fast path
 
+Some historical MoonGen documentation is still present under [doc/index.md](doc/index.md), but it should be treated as upstream reference material, not as the source of truth for this lab.
 
-# Architecture
-MoonGen is built on [libmoon](https://github.com/tumi8/libmoon), a Lua wrapper for DPDK.
+## Current Architecture
 
+Current operating model:
 
-Users can write custom scripts for their experiments. It is recommended to make use of hard-coded setup-specific constants in your scripts. The script is the configuration, it is beside the point to write a complicated configuration interface for a script.
-Alternatively, there is a simplified (and less powerful) command-line interface available for quick tests.
-
-The following diagram shows the architecture and how multi-core support is handled.
-
-<p align="center">
-<img alt="Architecture" src="https://raw.githubusercontent.com/tumi8/MoonGen/v22.11/doc/img/moongen-architecture.png" srcset="https://raw.githubusercontent.com/tumi8/MoonGen/v22.11/doc/img/moongen-architecture.png 1x, https://raw.githubusercontent.com/tumi8/MoonGen/v22.11/doc/img/moongen-architecture@2x.png 2x"/>
-</p>
-
-Execution begins in the *master task* that must be defined in the userscript.
-This task configures queues and filters on the used NICs and then starts one or more *slave tasks*.
-
-Note that Lua does not have any native support for multi-threading.
-MoonGen therefore starts a new and completely independent LuaJIT VM for each thread.
-The new VMs receive serialized arguments: the function to execute and arguments like the queue to send packets from.
-Threads only share state through the underlying library.
-
-The example script [quality-of-service-test.lua](https://github.com/tumi8/MoonGen/blob/v22.11/examples/quality-of-service-test.lua?ts=4) shows how this threading model can be used to implement a typical load generation task.
-It implements a QoS test by sending two different types of packets and measures their throughput and latency. It does so by starting two packet generation tasks: one for the background traffic and one for the prioritized traffic.
-A third task is used to categorize and count the incoming packets.
-
-
-# Hardware Timestamping
-Intel commodity NICs from the ice, igb, ixgbe, and i40e families support timestamping in hardware for both transmitted and received packets.
-The NICs implement this to support the IEEE 1588 PTP protocol, but this feature can be used to timestamp almost arbitrary UDP packets.
-MoonGen achieves a precision and accuracy of below 100 ns.
-
-Use ``test-timestamping-capabilities.lua`` in ``examples/timestamping-tests`` to test your NIC's timestamping capabilities.
-
-A more detailed evaluation can be found in [our paper](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015.pdf) [1].
-
-# Installation
-
-1. Install the dependencies (see below)
-2. ./build.sh --noBind
-3. sudo ./bind-interfaces.sh
-4. sudo ./setup-hugetlbfs.sh
-5. sudo ./build/MoonGen examples/l3-load-latency.lua 0 1
-
-Note: You need to bind NICs to DPDK to use them. `bind-interfaces.sh` does this for all unused NICs (no routing table entry in the system).
-Use `libmoon/deps/dpdk/usertools/dpdk-devbind.py ` to manage NICs manually.
-
-
-## Dependencies
-* gcc >= 4.8
-* make
-* cmake
-* meson
-* ninja-build
-* pkg-config
-* python3-pyelftools
-* libnuma-dev
-* libsystemd-dev
-* kernel headers (for the DPDK igb-uio driver)
-* lspci (for `dpdk-devbind.py`)
-* additional dependencies for Mellanox NICs
-
-Run the following command to install these on Debian/Ubuntu:
-
-```
-sudo apt-get install -y build-essential cmake linux-headers-`uname -r` pciutils libnuma-dev meson ninja-build pkg-config python3-pyelftools libsystemd-dev
+```mermaid
+flowchart TD
+    subgraph Toolbox
+        CLI["vmoongenctl"]
+        D["CP daemon"]
+        MG["MoonGen front-end<br/>injector / driver"]
+        LOGS["logs"]
+    end
+    CLI --> D
+    CLI --> MG
+    D -- "/tmp/vmoongen.sock" --> VPP["VPP<br/>fast path + TCP/UDP stack"]
+    VPP -- "DPDK owns X710 ports" --> NIC["Intel X710 10G pair"]
+    NIC --> DAC["DAC cross-port path"]
+    MG -. "control / scenario driving" .-> D
 ```
 
-# Using MoonGen
+Current split of responsibilities:
 
-You have to write a simple script for your use case.
-The example [l3-load-latency.lua](https://github.com/tumi8/MoonGen/blob/v22.11/examples/l3-load-latency.lua) is a good starting point as it makes use of a lot of different features of MoonGen.
+- Host: hugepages, VFIO, NIC binding, VPP container lifecycle, VPP/DPDK fast path
+- Toolbox: `vmoongenctl`, `vpp_bridge_daemon.py`, MoonGen-side experiment driving, logs, diagnostics
+- Lua side: thin control client plus fast-path scripts
+- Python side: UNIX socket daemon plus VPP backend
 
+Target operating rule for the DAC setup:
 
-## Simple CLI
-The simplest way to get started is using the [simple command line interface](https://github.com/tumi8/MoonGen/blob/v22.11/interface/README.md). For example:
+- one client role on one X710 port
+- one server role on the other X710 port
+- traffic must traverse the DAC between ports
+- no client/server loop on the same physical port
 
-    sudo ./moongen-simple start load-latency:0:1:rate=10Mp/s,timeLimit=3m
+## Control-Plane Evolution
 
-This sends packets with a rate of 10 million packets per second for 3 minutes from port 0 to port 1 and outputs the latency at the end of the run. Available DPDK ports are printed on startup.
+Current control path:
 
-`load-latency` is a *flow* that is defined in `flows/examples.lua`.
-Have a look at this file to see how flows are defined. You can add your own flow definitions to any file in the `flows` subdirectory.
-Run `./moongen-simple list` to see all available flows.
-It's also helpful to run a flow with `debug` instead of `start` to print packet contents instead of sending them.
+```text
+Lua
+  -> UNIX socket
+  -> Python daemon
+  -> shell out to vppctl
+  -> VPP CLI socket
+  -> text output
+```
 
-See the [documentation for the simple CLI](https://github.com/tumi8/MoonGen/blob/v22.11/interface/README.md) for more details and instructions.
-You can also check the `help` command or run any subcommand with `-h`.
+Target control path:
 
-This API comes with a small performance overhead compared to the full API.
-You can enable multi-threading on a single port by specifying the same port multiple times separated with commas.
+```text
+Lua
+  -> UNIX socket
+  -> Python daemon
+  -> VPP binary API
+  -> structured response
+```
 
-## Using the full API
-Using the full API gives you complete control over MoonGen, this is recommended for more complex test setups.
-This means that you'll have to write a custom script to use MoonGen in this mode.
+Longer-term high-performance target:
 
-MoonGen comes with examples in the examples folder which can be used as a basis for custom scripts.
-Reading the example script [l3-load-latency.lua](https://github.com/tumi8/MoonGen/blob/v22.11/examples/l3-load-latency.lua?ts=4) or [quality-of-service-test.lua](https://github.com/tumi8/MoonGen/blob/v22.11/examples/quality-of-service-test.lua?ts=4) is a good way to learn more about our scripting API as these scripts use most features of MoonGen.
+```text
+Lua / MoonGen
+  -> local daemon over UNIX socket
+  -> persistent VPP API session
+  -> typed requests
+  -> optional batching
+  -> structured response
+```
 
-You can run a script like this:
+The high-level architecture stays the same. The backend becomes faster and more structured.
 
-    ./build/MoonGen ./examples/l3-load-latency.lua 0 1
+## Current Status
 
-The two command line arguments are the transmission and reception ports, see script (or run with `-h`) for CLI parameter handling.
-MoonGen prints all available ports on startup, so adjust this if necessary.
+Validated on `venus` on March 17, 2026:
 
-You can also check out the examples of the [libmoon](https://github.com/tumi8/libmoon) project.
-All libmoon scripts are also valid MoonGen scripts as MoonGen extends libmoon.
+- VPP container reachable through `vppctl`
+- persistent control-plane daemon reachable through `/tmp/vmoongen.sock`
+- MoonGen runtime dependency check working
+- host preflight for hugepages, VFIO, and NIC binding automated
+- MoonGen-side workload start working on the X710 pair when the ports are assigned to MoonGen
+- VPP dataplane mode detection now refuses to render a broken config when the installed VPP build cannot own the DAC pair
 
-## MoonEm
-MoonEm is a path property emulator, based on MoonGen.
-We performed a comprehensive evaluation of MoonEm in our [paper](https://dl.acm.org/doi/10.1145/3768976) [2].
+Still in progress:
 
-To apply a delay of 10ms, a rate limit of 1000Mbit/s and a random packet loss of 1% to traffic bidirectionally forwarded between port 0 and 1, use the following command:
+- on `venus`, the installed VPP `v26.06-rc0` build does not ship `dpdk_plugin.so`; it exposes `ige` / `iavf` / `idpf`, which do not support the X710 PF (`8086:1572`)
+- the X710 DAC fast path therefore still requires a VPP rebuild or reinstall with classic DPDK / `net_i40e` support
+- current rebuild attempts on `venus` stop earlier in the external dependency chain because `ipsec-mb` needs `nasm`, which is not currently installed in the build environment
+- replace the CLI backend with the VPP binary API
+- formalize containerized deployment for the full host/toolbox model
+- unify Git history and docs between Mac, `venus`, and GitHub
+- extend the model toward distributed HBR / L4LB / stateful back ends
 
-    ./moonem 0 1 --delay 10 --rate 1000 --loss 1
+## Runtime Automation Model
 
-# Frequently Asked Questions
+The current automation model is intentionally script-driven:
 
-### Which NICs do you support?
-Basic functionality is available on all [NICs supported by DPDK](http://dpdk.org/doc/nics).
-Hardware timestamping is currently supported and tested on Intel ice, igb, and i40e NICs. However, support for specific features varies between models.
-Use ``test-timestamping-capabilities.lua`` in ``examples/timestamping-tests`` to find out what your NIC supports.
-Hardware rate control is supported and tested on Intel ixgbe and i40e NICs. Hardware checksum offloading and timestamping currently do not work on ixgbe NICs with this version of MoonGen.
+- VPP: host-side podman container started by shell scripts with pid/log supervision
+- control-plane daemon: script-driven process with socket + pid tracking
+- MoonGen-side workload: `nohup` + pid/log files
+- lab orchestration: `scripts/vmoongenctl`
+- logs: files under `logs/`
 
+Some earlier notes referenced `tmux` and `systemd --user`. Those remain optional operational styles, but they are not the current canonical runtime model of this repository.
+
+## Quick Start
 
-### What's the difference between MoonGen and libmoon?
-MoonGen builds on [libmoon](https://github.com/tumi8/libmoon) by extending it with features for packet generators such as software rate control and software timestamping.
+Typical flow on the current single-host lab:
 
-If you want to write a packet generator or test your application: use MoonGen.
-If you want to prototype DPDK applications: use [libmoon](https://github.com/tumi8/libmoon).
+1. Prepare the host:
 
+   ```bash
+   scripts/setup-host.sh
+   ```
 
-# References
-[1] Paul Emmerich, Sebastian Gallenmüller, Daniel Raumer, Florian Wohlfart, and Georg Carle. MoonGen: A Scriptable High-Speed Packet Generator, 2015. IMC 2015. [Available online](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015.pdf).  [BibTeX](http://www.net.in.tum.de/fileadmin/bibtex/publications/papers/MoonGen_IMC2015-BibTeX.txt).
+2. Start host-side VPP:
 
-[2]  Stefan Lachnit, Sebastian Gallenmüller, Eric Hauser, Florian Wiedner, Kilian Holzinger, Henning Stubbe, Thomas Senftl, Georg Carle. MoonEm — High-Precision Path Property Emulation Using DPDK, 2025. Proceedings of the ACM on Networking, Volume 3, Issue CoNEXT4. [Available online](https://dl.acm.org/doi/10.1145/3768976). [BibTeX](https://net.in.tum.de/publications/bibtex/lachnit2025moonem.bib).
+   ```bash
+   scripts/vmoongenctl check-vpp-fastpath
+   scripts/render-vpp-session-conf.sh
+   scripts/start-vpp-host.sh
+   ```
 
-## VPP Integration (Experimental)
+3. Start the toolbox control-plane:
 
-This branch introduces an experimental integration between MoonGen and
-the FD.io VPP (Vector Packet Processing) engine.
+   ```bash
+   scripts/vmoongenctl start-lab
+   ```
 
-The integration allows Lua scripts to control a running VPP instance
-through a lightweight bridge.
+4. Check fast-path readiness:
 
-Architecture:
+   ```bash
+   scripts/vmoongenctl check-fp-ready
+   ```
 
-MoonGen (Lua)
-      │
-      ▼
-lua/vpp.lua
-      │
-      ▼
-tools/vpp_contract_bridge.py
-      │
-      ▼
-tools/vpp_backend_vpp.py
-      │
-      ▼
-VPP CLI socket
+5. Start MoonGen-side workload if needed:
 
-The Lua module sends JSON requests to a Python bridge which translates
-them into `vppctl` commands executed on a running VPP instance.
+   ```bash
+   scripts/vmoongenctl start-fp
+   ```
 
-### Example
+6. Check status:
 
-```lua
-local vpp = require("vpp")
+   ```bash
+   scripts/vmoongenctl status-cp
+   scripts/vmoongenctl status-fp
+   scripts/status-vpp-host.sh
+   ```
 
-local socket = "/home/user/Projects/vpp/run/cli.sock"
+7. Stop components when needed:
 
-print(vpp.show_version(socket))
-print(vpp.show_interfaces(socket))
-<<<<<<< HEAD
-Supported actions
-=======
+   ```bash
+   scripts/vmoongenctl stop-fp
+   scripts/vmoongenctl stop-lab
+   scripts/stop-vpp-host.sh
+   ```
 
-Requirements
-	•	Running VPP instance
-	•	Access to the VPP CLI socket
-	•	Python 3
+## Lab Workflow
 
-Using MoonGen
+```mermaid
+flowchart LR
+    H["Host prep<br/>hugepages + vfio-pci"] --> C["render-vpp-session-conf"]
+    C --> V["start-vpp-host"]
+    V --> L["vmoongenctl start-lab"]
+    L --> R["control + status checks"]
+    R --> T["client on port0<br/>server on port1<br/>across DAC"]
+    T --> S["status-cp / status-fp / status-vpp-host"]
+```
 
-You have to write a simple script for your use case.
-The example l3-load-latency.lua￼ is a good starting point as it makes use of a lot of different features of MoonGen.
+## Key Commands
 
-Simple CLI
+The main operator entrypoint is:
 
-The simplest way to get started is using the simple command line interface￼. For example:
+```bash
+scripts/vmoongenctl
+```
 
-sudo ./moongen-simple start load-latency:0:1:rate=10Mp/s,timeLimit=3m
+Useful commands:
 
-This sends packets with a rate of 10 million packets per second for 3 minutes from port 0 to port 1 and outputs the latency at the end of the run. Available DPDK ports are printed on startup.
+- `vmoongenctl render-vpp-conf`
+- `vmoongenctl start-lab`
+- `vmoongenctl status-cp`
+- `vmoongenctl check-fp-deps`
+- `vmoongenctl check-fp-ready`
+- `vmoongenctl check-vpp-fastpath`
+- `vmoongenctl check-vpp-build`
+- `vmoongenctl start-fp`
+- `vmoongenctl status-fp`
+- `vmoongenctl stop-fp`
 
-load-latency is a flow that is defined in flows/examples.lua.
-Have a look at this file to see how flows are defined. You can add your own flow definitions to any file in the flows subdirectory.
-Run ./moongen-simple list to see all available flows.
-It’s also helpful to run a flow with debug instead of start to print packet contents instead of sending them.
+Command summary:
 
-See the documentation for the simple CLI￼ for more details and instructions.
-You can also check the help command or run any subcommand with -h.
+| Command | Purpose |
+| --- | --- |
+| `vmoongenctl render-vpp-conf` | render a VPP/DPDK config for the DAC cross-port topology |
+| `vmoongenctl start-lab` | start the toolbox control-plane side |
+| `vmoongenctl status-cp` | inspect daemon socket and VPP reachability |
+| `vmoongenctl check-fp-deps` | check MoonGen runtime libraries |
+| `vmoongenctl check-fp-ready` | check host prerequisites plus VPP dataplane support |
+| `vmoongenctl check-vpp-fastpath` | detect which VPP dataplane mode is actually available for the DAC NIC pair |
+| `vmoongenctl check-vpp-build` | detect missing VPP rebuild prerequisites such as `nasm`, `libdpdk.a`, or `dpdk_plugin.so` |
+| `vmoongenctl start-fp` | start the MoonGen-side workload used to drive or validate experiments |
+| `vmoongenctl status-fp` | inspect the MoonGen-side workload and recent runtime log |
+| `vmoongenctl stop-fp` | stop the MoonGen-side workload and clean DPDK runtime leftovers |
 
-This API comes with a small performance overhead compared to the full API.
+## Observed Footprint On `venus`
 
-You can enable multi-threading on a single port by specifying the same port multiple times separated with commas.
+Snapshot taken on March 17, 2026 while the control plane was up:
 
-Using the full API
+- `vpp_main`: about `350 MiB` RSS and one hot polling core
+- `podman` wrapper for the VPP container: about `57 MiB` RSS
+- `vpp_bridge_daemon.py`: about `15 MiB` RSS
 
-Using the full API gives you complete control over MoonGen, this is recommended for more complex test setups.
-This means that you’ll have to write a custom script to use MoonGen in this mode.
+This is a good memory profile for the current lab, but the idle CPU cost is still one busy VPP main thread.
 
-MoonGen comes with examples in the examples folder which can be used as a basis for custom scripts.
-Reading the example script l3-load-latency.lua￼ or quality-of-service-test.lua￼ is a good way to learn more about our scripting API as these scripts use most features of MoonGen.
+## Reducing CPU And RAM
 
-You can run a script like this:
-./build/MoonGen ./examples/l3-load-latency.lua 0 1
+Today the safest ways to keep the lab footprint under control are:
 
-The two command line arguments are the transmission and reception ports, see script (or run with -h) for CLI parameter handling.
-MoonGen prints all available ports on startup, so adjust this if necessary.
+- keep the control-plane-only profile when the DAC dataplane is not under test:
 
-You can also check out the examples of the libmoon￼ project.
-All libmoon scripts are also valid MoonGen scripts as MoonGen extends libmoon.
+  ```bash
+  export VMOONGEN_VPP_FASTPATH_MODE=cp-only
+  ```
 
-MoonEm
+- keep the VPP worker count small:
 
-MoonEm is a path property emulator, based on MoonGen.
-We performed a comprehensive evaluation of MoonEm in our paper￼ [2].
+  ```bash
+  export VMOONGEN_VPP_WORKERS=1
+  ```
 
-To apply a delay of 10ms, a rate limit of 1000Mbit/s and a random packet loss of 1% to traffic bidirectionally forwarded between port 0 and 1, use the following command:
-./moonem 0 1 --delay 10 --rate 1000 --loss 1
+- keep one RX queue and one TX queue per port unless the experiment really needs more:
 
-Frequently Asked Questions
+  ```bash
+  export VMOONGEN_VPP_RX_QUEUES=1
+  export VMOONGEN_VPP_TX_QUEUES=1
+  ```
 
-Which NICs do you support?
+- keep queue depths modest unless packet loss measurements require deeper buffers:
 
-Basic functionality is available on all NICs supported by DPDK￼.
-Hardware timestamping is currently supported and tested on Intel ice, igb, and i40e NICs. However, support for specific features varies between models.
-Use test-timestamping-capabilities.lua in examples/timestamping-tests to find out what your NIC supports.
-Hardware rate control is supported and tested on Intel ixgbe and i40e NICs. Hardware checksum offloading and timestamping currently do not work on ixgbe NICs with this version of MoonGen.
+  ```bash
+  export VMOONGEN_VPP_RX_QUEUE_SIZE=512
+  export VMOONGEN_VPP_TX_QUEUE_SIZE=512
+  ```
 
-What’s the difference between MoonGen and libmoon?
+- do not start the MoonGen-side workload unless the current test needs it
+- for rebuilds on the host, keep `MAKE_PARALLEL_JOBS=4` or lower to avoid wasting CPU time and memory on external dependency builds
 
-MoonGen builds on libmoon￼ by extending it with features for packet generators such as software rate control and software timestamping.
+Longer term, the biggest CPU reduction on the control side will come from replacing repeated `vppctl` calls with a persistent VPP binary API session in the daemon.
 
-If you want to write a packet generator or test your application: use MoonGen.
-If you want to prototype DPDK applications: use libmoon￼.
+## DAC Validation Checklist
 
-References
+For the current back-to-back DAC setup:
 
-[1] Paul Emmerich, Sebastian Gallenmüller, Daniel Raumer, Florian Wohlfart, and Georg Carle. MoonGen: A Scriptable High-Speed Packet Generator, 2015. IMC 2015. Available online￼.  BibTeX￼.
+- hugepages configured on the host
+- both X710 ports bound to `vfio-pci`
+- a VPP session config rendered with DPDK enabled for both ports
+- VPP reachable through `cli.sock`
+- daemon reachable through `/tmp/vmoongen.sock`
+- `vmoongenctl check-fp-ready` passes
+- the X710 link is physically up on both ports
+- client and server roles are split across the two ports
+- traffic crosses the DAC and never loops client/server on the same port
 
-[2] Stefan Lachnit, Sebastian Gallenmüller, Eric Hauser, Florian Wiedner, Kilian Holzinger, Henning Stubbe, Thomas Senftl, Georg Carle. MoonEm — High-Precision Path Property Emulation Using DPDK, 2025. Proceedings of the ACM on Networking, Volume 3, Issue CoNEXT4. Available online￼. BibTeX￼.
+## Configuration
 
-VPP Integration (Experimental)
+The repository no longer assumes a single hard-coded layout.
 
-This branch introduces an experimental integration between MoonGen and FD.io VPP (Vector Packet Processing).
+Important environment variables:
 
-The integration allows Lua scripts to control a running VPP instance through a lightweight Python bridge.
+- `VMOONGEN_ROOT`
+- `VPP_ROOT`
+- `VMOONGEN_VPP_ROOT`
+- `VPP_SOCKET`
+- `VPP_CTL_BIN`
+- `VMOONGEN_BRIDGE_SOCKET`
+- `VMOONGEN_HUGEPAGES`
+- `VMOONGEN_VPP_WORKERS`
+- `VMOONGEN_VPP_RX_QUEUES`
+- `VMOONGEN_VPP_TX_QUEUES`
+- `VMOONGEN_VPP_RENDER_CONFIG`
+- `VMOONGEN_IFACES`
+- `VMOONGEN_NIC1`
+- `VMOONGEN_NIC2`
 
-Architecture
-graph TD
-MoonGen["MoonGen Lua Script"]
-Lua["lua/vpp.lua"]
-Bridge["tools/vpp_contract_bridge.py"]
-Backend["tools/vpp_backend_vpp.py"]
-VPP["VPP CLI socket"]
+See:
 
-MoonGen --> Lua
-Lua --> Bridge
-Bridge --> Backend
-Backend --> VPP
+- [scripts/vmoongen-env.sh](scripts/vmoongen-env.sh)
+- [tools/vmoongen_env.py](tools/vmoongen_env.py)
+- [lua/vmoongen-env.lua](lua/vmoongen-env.lua)
 
-Component Roles
-Component Roles
-Component
-Description
-lua/vpp.lua
-Lua module providing VPP control functions
-tools/vpp_contract_bridge.py
-JSON bridge between Lua and Python
-tools/vpp_backend_vpp.py
-Backend executing VPP CLI commands
-cli.sock
-VPP CLI socket used by vppctl
+## Documentation Map
 
-The Lua module sends JSON requests to the Python bridge which then executes the corresponding vppctl commands.
+Repository rule:
 
-Detailed architecture documentation is available in:
-doc/vpp-integration.md
+- `README.md` stays at the repository root
+- all other maintained Markdown documents live under `doc/`
 
-Example
-local vpp = require("vpp")
+Project-specific documents:
 
-local socket = "/home/user/Projects/vpp/run/cli.sock"
-
-print(vpp.show_version(socket))
-print(vpp.show_interfaces(socket))
-
-Supported Actions
-
-The following operations are currently supported:
->>>>>>> b88f4c6 (Rewrite README with VPP integration documentation)
-	•	show_version
-	•	show_interfaces
-	•	show_plugins
-	•	show_sessions
-	•	set_interface_state
-	•	run_cli
-
-Requirements
-<<<<<<< HEAD
-	•	Running VPP instance
-	•	Access to the VPP CLI socket
-	•	Python 3
-=======
-
-To use the VPP integration you need:
-	•	Running VPP instance
-	•	Access to the VPP CLI socket
-	•	Python 3
-	•	A working MoonGen build
-
-Example VPP startup:
-vpp -c run/vpp-session.conf
-
-Status
-
-This feature is experimental and intended for research and experimentation.
-
-Future improvements may include:
-	•	native VPP binary API integration
-	•	persistent bridge process
-	•	MoonGen ↔ VPP traffic orchestration
-README_EOF
-
-echo “README.md rewritten successfully.”
-EOF
->>>>>>> b88f4c6 (Rewrite README with VPP integration documentation)
+- [doc/index.md](doc/index.md)
+- [doc/architecture.md](doc/architecture.md)
+- [doc/control-plane.md](doc/control-plane.md)
+- [doc/fast-path.md](doc/fast-path.md)
+- [doc/operations.md](doc/operations.md)
+- [doc/troubleshooting.md](doc/troubleshooting.md)
+- [doc/vpp-integration.md](doc/vpp-integration.md)
+- [doc/roadmap.md](doc/roadmap.md)
+- [doc/roadmap-control-plane.md](doc/roadmap-control-plane.md)

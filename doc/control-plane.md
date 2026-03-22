@@ -1,67 +1,85 @@
 # Control Plane
 
-The **control-plane (CP)** manages configuration and orchestration of
-the dataplane.
+The vMoonGen control plane is a lightweight orchestration layer between Lua scripts and VPP.
 
-It interacts with **VPP** through a lightweight bridge daemon.
+## Current Request Path
 
-Architecture:
+```text
+Lua
+  -> lua/vpp.lua
+  -> lua/vpp_socket.lua
+  -> /tmp/vmoongen.sock
+  -> tools/vpp_bridge_daemon.py
+  -> tools/vpp_backend_vpp.py
+  -> vppctl -s <cli.sock>
+  -> JSON response
+```
 
-    Lua scripts
-         |
-         v
-    vpp_bridge_daemon
-         |
-         v
-    VPP CLI socket
-         |
-         v
-    VPP dataplane
+## Why This Exists
 
-------------------------------------------------------------------------
+The project does not want heavy control logic inside MoonGen scripts.
 
-# Responsibilities
+The daemon provides:
 
-The control plane:
+- a stable UNIX socket endpoint
+- centralized backend selection
+- structured request and response handling
+- a migration point toward the VPP binary API
 
--   configure VPP interfaces
--   query dataplane state
--   run diagnostics
--   orchestrate experiments
+## Current Supported Actions
 
-------------------------------------------------------------------------
+Current typed actions include:
 
-# Current Model
+- `show_version`
+- `show_interfaces`
+- `show_plugins`
+- `show_sessions`
+- `set_interface_state`
+- `run_cli`
 
-Lua sends commands to the daemon:
+The Lua wrappers live in:
 
-    Lua -> daemon -> vppctl -> CLI socket
+- [lua/vpp.lua](../lua/vpp.lua)
+- [lua/vpp_socket.lua](../lua/vpp_socket.lua)
 
-Output is parsed and returned as JSON.
+The daemon lives in:
 
-Example response:
+- [tools/vpp_bridge_daemon.py](../tools/vpp_bridge_daemon.py)
 
-    {
-     "ok": true,
-     "output": "show version"
-    }
+The current VPP backend lives in:
 
-------------------------------------------------------------------------
+- [tools/vpp_backend_vpp.py](../tools/vpp_backend_vpp.py)
 
-# Future Optimization
+## Response Model
 
-Planned architecture:
+Responses are structured JSON payloads.
 
-    Lua
-     |
-     v
-    daemon
-     |
-     v
-    VPP binary API
+Example:
 
-Benefits:
+```json
+{
+  "ok": true,
+  "version": 1,
+  "data": {
+    "backend": "vpp",
+    "socket_path": "/home/mfl42/Projects/vpp/run/cli.sock",
+    "output": "vpp v26.06-rc0 ..."
+  }
+}
+```
 
--   faster control operations
--   structured data
--   no text parsing
+## Current Limitations
+
+- the backend still relies on `vppctl`
+- most payloads are still plain text in the `output` field
+- there is no persistent VPP binary API session yet
+
+## Next Control-Plane Step
+
+The next major control-plane improvement is:
+
+```text
+Lua -> daemon -> VPP binary API -> structured response
+```
+
+The daemon should remain the stable abstraction boundary even after the backend changes.

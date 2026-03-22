@@ -1,28 +1,56 @@
-\mainpage
-\tableofcontents
-# MoonGen Packet Generator
+# Documentation Index
 
-MoonGen is a high-speed scriptable packet generator.
-The whole load generator is controlled by a Lua script: all packets that are sent are crafted by a user-provided script.
-Thanks to the incredibly fast LuaJIT VM and the packet processing library DPDK, it can saturate a 10 GBit Ethernet link with 64 Byte packets while using only a single CPU core.
-MoonGen can achieve this rate even if each packet is modified by a Lua script. It does not rely on tricks like replaying the same buffer.
+This repository contains two kinds of documentation:
 
-MoonGen can also receive packets, e.g. to check which packets are dropped by a
-system under test. As the reception is also fully under control of the user's
-Lua script, it can be used to implement advanced test scripts. E.g. one can use
-two instances of MoonGen that establish a connection with each other. This
-setup can be used to benchmark middle-boxes like firewalls.
+- canonical vMoonGen project documentation
+- legacy MoonGen reference documentation kept for upstream context
 
-Reading the example script [quality-of-service-test.lua](https://github.com/emmericp/MoonGen/blob/master/examples/quality-of-service-test.lua) is a good way to learn more about our scripting API as this script uses most features of MoonGen.
+Documentation layout rule:
 
-MoonGen focuses on four main points:
+- `README.md` stays at the repository root
+- every other maintained Markdown document lives under `doc/`
 
-* High performance and multi-core scaling: > 15 million packets per second per CPU core
-* Flexibility: Each packet is crafted in real time by a user-provided Lua script
-* Precise and accurate timestamping: Timestamping with sub-microsecond precision on commodity hardware
-* Precise and accurate rate control: Reliable generation of arbitrary traffic patterns on commodity hardware
+If you are working on the VPP integration, host/toolbox runtime, or current lab operations, start with the canonical documents below.
 
-You can have a look at [our slides from a recent talk](https://raw.githubusercontent.com/emmericp/MoonGen/master/doc/Slides.pdf) or read a draft of [our paper](http://arxiv.org/ftp/arxiv/papers/1410/1410.3322.pdf) [1] for a more detailed discussion of MoonGen's internals.
+## Canonical Project Docs
 
+- [README.md](../README.md)
+  Current project overview and operator quick start.
 
+- [architecture.md](architecture.md)
+  Current host/toolbox architecture and component boundaries.
 
+- [control-plane.md](control-plane.md)
+  Control-plane request flow, daemon model, and current backend behavior.
+
+- [fast-path.md](fast-path.md)
+  VPP/DPDK fast-path model, DAC cross-port rule, and runtime expectations.
+
+- [operations.md](operations.md)
+  Standard start, stop, status, and recovery flows.
+
+- [troubleshooting.md](troubleshooting.md)
+  Common failure modes and the expected recovery path.
+
+- [vpp-integration.md](vpp-integration.md)
+  Lua to daemon to VPP integration details and current contract.
+
+- [roadmap.md](roadmap.md)
+  Overall platform roadmap.
+
+- [roadmap-control-plane.md](roadmap-control-plane.md)
+  Control-plane optimization roadmap toward the VPP binary API.
+
+## Legacy MoonGen Reference Docs
+
+The documents below are useful as upstream reference, but they are not the source of truth for the current VPP lab integration:
+
+- [packet_api.md](packet_api.md)
+- [timestamping.md](timestamping.md)
+- [examples.md](examples.md)
+- [faq.md](faq.md)
+- [install.md](install.md)
+- [download.md](download.md)
+- [rate_control.md](rate_control.md)
+
+Use those documents for MoonGen mechanics, not for the current vMoonGen operating model.

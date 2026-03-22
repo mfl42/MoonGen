@@ -1,46 +1,31 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-ROOT="$HOME/Projects/vMoonGen"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/vmoongen-env.sh
+source "$SCRIPT_DIR/vmoongen-env.sh"
+mkdir -p "$LOGDIR"
+STOP_VPP="${VMOONGEN_STOP_VPP:-0}"
 
-echo
-echo "======================================="
-echo " Stopping vMoonGen / VPP LAB"
-echo "======================================="
-echo
+log() {
+  echo "[$(date '+%F %T')] [LAB] $*" | tee -a "$LOGDIR/lab-actions.log"
+}
 
-echo "[1] Stopping MoonGen"
+log "Stopping fast-path"
+"$ROOT/scripts/stop-fastpath.sh" || true
 
-sudo pkill MoonGen 2>/dev/null || true
+log "Stopping control-plane daemon"
+"$ROOT/scripts/stop-daemon.sh" || true
 
-echo
-echo "[2] Stopping vMoonGen bridge daemon"
+if [[ "$STOP_VPP" == "1" ]]; then
+  log "Stopping host-side VPP"
+  "$ROOT/scripts/stop-vpp-host.sh" || true
+else
+  log "Leaving host-side VPP running (VMOONGEN_STOP_VPP=$STOP_VPP)"
+fi
 
-pkill -f vpp_bridge_daemon.py 2>/dev/null || true
+log "Cleaning DPDK runtime leftovers"
+sudo rm -f /var/run/dpdk/rte/config || true
+sudo rm -f /var/run/dpdk/rte/mp_socket || true
 
-echo
-echo "[3] Stopping VPP"
-
-sudo pkill vpp 2>/dev/null || true
-
-sleep 2
-
-echo
-echo "[4] Cleaning DPDK runtime files"
-
-sudo rm -rf /var/run/dpdk 2>/dev/null || true
-sudo rm -rf /run/user/*/dpdk 2>/dev/null || true
-
-echo
-echo "[5] Cleaning hugepages (optional)"
-
-sudo rm -rf /dev/hugepages/* 2>/dev/null || true
-
-echo
-echo "[6] Status"
-
-ps aux | grep -E "MoonGen|vpp|vpp_bridge_daemon" | grep -v grep || echo "All processes stopped"
-
-echo
-echo "======================================="
-echo " LAB STOPPED"
-echo "======================================="
+log "Lab stopped"
