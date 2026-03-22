@@ -10,6 +10,7 @@ usage() {
   cat <<USAGE
 Usage:
   vmoongenctl render-vpp-conf [target]
+  vmoongenctl start-vpp-native          # native AF_XDP (no container)
   vmoongenctl start-vpp-host
   vmoongenctl stop-vpp-host
   vmoongenctl status-vpp-host
@@ -31,14 +32,19 @@ Usage:
   vmoongenctl bootstrap-dpdk-mirror
   vmoongenctl build-vpp-image
   vmoongenctl build-vpp-system-dpdk
+  vmoongenctl plan-core-affinity [--reserve-p-cores 2..4] [--reserve-e-clients N|all] [--system-min-cpus N] [--system-min-e-cores N] [--write-env FILE]
   vmoongenctl scenario-ast <scenario.lua>
   vmoongenctl scenario-plan <scenario.lua>
   vmoongenctl scenario-v1 <scenario.lua>
   vmoongenctl scenario-worker-plan <scenario.lua> [--workers N] [--shard-strategy contiguous|round_robin]
-  vmoongenctl scenario-run <scenario.lua> [--workers N] [--step-s N] [--out-dir DIR]
-  vmoongenctl scenario-replay <worker-plan.json> [--step-s N] [--target-cps-override N] [--out-dir DIR]
-  vmoongenctl scenario-campaign <scenario.lua> [--workers N] [--iterations N] [--out-dir DIR]
+  vmoongenctl scenario-run <scenario.lua> [--workers N] [--step-s N] [--out-dir DIR] [--allow-1arm]
+  vmoongenctl scenario-replay <worker-plan.json> [--step-s N] [--target-cps-override N] [--out-dir DIR] [--allow-1arm]
+  vmoongenctl scenario-campaign <scenario.lua> [--workers N] [--iterations N] [--run-window 5m|15m|30m|60m|Ns] [--out-dir DIR] [--allow-1arm]
+  vmoongenctl scenario-campaign-cache [<scenario.lua>] [--workers N] [--iterations N] [--run-window 5m|15m|30m|60m|Ns] [--out-dir DIR] [--p-cores N] [--e-cores N]
+  vmoongenctl scenario-perf-suite [--base-terminals 20] [--factors 1,2,4,8] [--extreme-factor 10] [--mbps-per-client 1] [--cps-per-client 500000] [--cpe-base N] [--cpe-scale-with-factor] [--udp-ttl-s 900] [--pcap-iface IFACE] [--pcap-bytes 102400] [--run-window-general 15m] [--run-window-cps 30m] [--out-dir DIR]
+  vmoongenctl scenario-progress <report_campaign.json> [--out-file FILE] [--emit-json]
   vmoongenctl scenario-smoke [local|remote|both] [--host user@ip] [--workers N]
+  vmoongenctl scenario-efficiency <artifact-dir> [--p-cores N] [--e-cores N] [--write-report]
   vmoongenctl check-fp-deps
   vmoongenctl check-nics
   vmoongenctl dpdk-reset
@@ -52,11 +58,53 @@ require_luajit() {
   fi
 }
 
+extract_allow_1arm() {
+  PARSED_ARGS=()
+  ALLOW_1ARM=0
+  local a
+  for a in "$@"; do
+    if [[ "$a" == "--allow-1arm" ]]; then
+      ALLOW_1ARM=1
+    else
+      PARSED_ARGS+=("$a")
+    fi
+  done
+}
+
+scenario_mode_from_file() {
+  local scenario_file="$1"
+  "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_dsl_compile.lua" "$scenario_file" --scenario-v1 \
+    | python3 -c 'import json,sys; print((json.load(sys.stdin) or {}).get("mode",""))'
+}
+
+scenario_mode_from_worker_plan() {
+  local worker_plan="$1"
+  python3 - "$worker_plan" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+print((data or {}).get("mode", ""))
+PY
+}
+
+enforce_2arm_priority() {
+  local mode="$1"
+  local where="$2"
+  local require_2arm="${VMOONGEN_REQUIRE_2ARM:-1}"
+  if [[ "$require_2arm" == "1" && "$ALLOW_1ARM" != "1" && "$mode" == "1-arm" ]]; then
+    echo "[ERROR] 1-arm scenario blocked for $where. P0 policy enforces 2-arm by default. Use --allow-1arm for explicit exception." >&2
+    exit 1
+  fi
+}
+
 cmd="${1:-}"
 shift || true
 
 case "$cmd" in
   render-vpp-conf) exec "$S/render-vpp-session-conf.sh" "$@" ;;
+  start-vpp-native) exec "$S/start-vpp-native.sh" "$@" ;;
   start-vpp-host) exec "$S/start-vpp-host.sh" "$@" ;;
   stop-vpp-host)  exec "$S/stop-vpp-host.sh" "$@" ;;
   status-vpp-host) exec "$S/status-vpp-host.sh" "$@" ;;
@@ -78,6 +126,7 @@ case "$cmd" in
   bootstrap-dpdk-mirror) exec "$S/bootstrap-dpdk-mirror.sh" "$@" ;;
   build-vpp-image) exec "$S/build-vpp-build-image.sh" "$@" ;;
   build-vpp-system-dpdk) exec "$S/build-vpp-system-dpdk.sh" "$@" ;;
+  plan-core-affinity) exec "$S/plan-core-affinity.sh" "$@" ;;
   scenario-ast)
     require_luajit
     exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_dsl_compile.lua" "$@" --ast
@@ -96,24 +145,54 @@ case "$cmd" in
     ;;
   scenario-run)
     require_luajit
-    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" "$@"
+    extract_allow_1arm "$@"
+    if [[ "${#PARSED_ARGS[@]}" -lt 1 ]]; then
+      echo "[ERROR] Usage: vmoongenctl scenario-run <scenario.lua> [runtime options]" >&2
+      exit 1
+    fi
+    run_scenario="${PARSED_ARGS[0]}"
+    run_mode="$(scenario_mode_from_file "$run_scenario")"
+    enforce_2arm_priority "$run_mode" "scenario-run ($run_scenario)"
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" "${PARSED_ARGS[@]}"
     ;;
   scenario-replay)
     require_luajit
-    if [[ $# -lt 1 ]]; then
+    extract_allow_1arm "$@"
+    if [[ "${#PARSED_ARGS[@]}" -lt 1 ]]; then
       echo "[ERROR] Usage: vmoongenctl scenario-replay <worker-plan.json> [runtime options]" >&2
       exit 1
     fi
-    wp="$1"
-    shift
-    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" --worker-plan-file "$wp" "$@"
+    wp="${PARSED_ARGS[0]}"
+    replay_mode="$(scenario_mode_from_worker_plan "$wp")"
+    enforce_2arm_priority "$replay_mode" "scenario-replay ($wp)"
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_runtime_skeleton.lua" --worker-plan-file "$wp" "${PARSED_ARGS[@]:1}"
     ;;
   scenario-campaign)
     require_luajit
-    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_campaign.lua" "$@"
+    extract_allow_1arm "$@"
+    if [[ "${#PARSED_ARGS[@]}" -lt 1 ]]; then
+      echo "[ERROR] Usage: vmoongenctl scenario-campaign <scenario.lua> [campaign options]" >&2
+      exit 1
+    fi
+    campaign_scenario="${PARSED_ARGS[0]}"
+    campaign_mode="$(scenario_mode_from_file "$campaign_scenario")"
+    enforce_2arm_priority "$campaign_mode" "scenario-campaign ($campaign_scenario)"
+    exec "$VMOONGEN_LUAJIT_BIN" "$ROOT/tools/scenario_campaign.lua" "${PARSED_ARGS[@]}"
     ;;
   scenario-smoke)
     exec "$S/scenario-smoke.sh" "$@"
+    ;;
+  scenario-campaign-cache)
+    exec "$S/scenario-campaign-cache.sh" "$@"
+    ;;
+  scenario-perf-suite)
+    exec "$S/scenario-perf-suite.sh" "$@"
+    ;;
+  scenario-progress)
+    exec "$S/scenario-progress.sh" "$@"
+    ;;
+  scenario-efficiency)
+    exec "$S/scenario-efficiency.sh" "$@"
     ;;
   check-fp-deps) exec "$S/check-moongen-deps.sh" "$@" ;;
   check-nics)   exec "$S/check-nics.sh" "$@" ;;
